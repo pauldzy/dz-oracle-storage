@@ -39,6 +39,12 @@ class Instance(object):
       
       self.loadorcl();
       
+      self._bytes_allocated = None;
+      self._bytes_used      = None;
+      self._bytes_free      = None;
+      self._tablespaces     = None;
+      self._schemas         = None;
+      
    @property
    def name(self):
       return self._name;
@@ -105,6 +111,56 @@ class Instance(object):
    @hoststring.setter
    def hoststring(self,value):
       self._hoststring = value;
+   
+   @property
+   def bytes_allocated(self):
+      if self._bytes_allocated is None:
+         self.loadinstancetotals();
+      return self._bytes_allocated;
+      
+   @property
+   def gb_allocated(self):
+      return self.bytes_allocated / 1024 / 1024 / 1024;
+   
+   @property
+   def bytes_used(self):
+      if self._bytes_used is None:
+         self.loadinstancetotals();
+      return self._bytes_used;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+
+   @property
+   def bytes_free(self):
+      if self._bytes_free is None:
+         self.loadinstancetotals();
+      return self._bytes_free;
+   
+   @property
+   def gb_free(self):
+      return self.bytes_free / 1024 / 1024 / 1024;
+      
+   @property
+   def tablespaces(self): 
+      if self._tablespaces is None or self._tablespaces == {}:
+         self.loadtablespaces();
+      return self._tablespaces;
+         
+   @property
+   def tablespaces_l(self):
+      return [d for d in self.tablespaces.values()];
+      
+   @property
+   def schemas(self): 
+      if self._schemas is None or self._schemas == {}:
+         self.loadschemas();
+      return self._schemas;
+         
+   @property
+   def schemas_l(self):
+      return [d for d in self.schemas.values()];
       
    ############################################################################
    def initorcl(self):
@@ -223,6 +279,11 @@ class Instance(object):
          CREATE TABLE dba_tablespaces(
              tablespace_name TEXT    NOT NULL
             ,PRIMARY KEY(tablespace_name)
+         );
+         
+         CREATE TABLE dba_users(
+             username        TEXT    NOT NULL
+            ,PRIMARY KEY(username)
          );
 
          CREATE TABLE dba_free_space(
@@ -365,6 +426,27 @@ class Instance(object):
          a.tablespace_name
          FROM
          dba_tablespaces a
+      """;
+      str_from += self.dts_asof;
+
+      fromc.execute(str_from);
+      for row in fromc:
+         toc.execute(str_to,row);
+         
+      ## dba_users
+      str_to = """
+         INSERT INTO dba_users(
+            username
+         ) VALUES (
+            ?
+         )
+      """;
+      
+      str_from = """
+         SELECT
+         a.username
+         FROM
+         dba_users a
       """;
       str_from += self.dts_asof;
 
@@ -773,9 +855,264 @@ class Instance(object):
       fromc.close();
       self._sqliteconn.commit();
       toc.close();
+      
+   ############################################################################
+   def loadinstancetotals(self):
+   
+      curs = self._sqliteconn.cursor();
+      
+      str_sql = """
+         SELECT
+          SUM(a.bytes_alloc)                                           AS bytes_allocated
+         ,SUM(a.bytes_alloc - a.bytes_free)                            AS bytes_used
+         ,SUM(a.bytes_alloc - (a.bytes_alloc - a.bytes_free))          AS bytes_free
+         FROM (  
+            SELECT
+             CASE 
+             WHEN bb.tablespace_name IS NULL
+             THEN
+               CASE
+               WHEN aa.tablespace_name IS NULL
+               THEN
+                  'UNKNOWN'
+               ELSE
+                  aa.tablespace_name
+               END
+             ELSE
+               bb.tablespace_name
+             END AS tablespace_name
+            ,CASE
+             WHEN aa.bytes_free IS NULL
+             THEN
+               0
+             ELSE
+               aa.bytes_free
+             END AS bytes_free
+            ,bb.bytes_alloc
+            ,bb.data_files
+            FROM (
+               SELECT
+                aaa.tablespace_name
+               ,SUM(aaa.bytes) AS bytes_free
+               ,MAX(aaa.bytes) AS bytes_largest
+               FROM
+               dba_free_space aaa
+               GROUP BY
+               aaa.tablespace_name
+            ) aa
+            RIGHT JOIN (
+               SELECT
+                bbb.tablespace_name
+               ,SUM(bbb.user_bytes) AS bytes_alloc
+               ,COUNT(*) AS data_files
+               FROM
+               dba_data_files bbb
+               GROUP BY
+               bbb.tablespace_name
+            ) bb
+            ON
+            aa.tablespace_name = bb.tablespace_name
+         ) a
+      """;
+   
+      curs.execute(str_sql);
+      for row in curs:
+         self._bytes_allocated = row[0];
+         self._bytes_used      = row[1];
+         self._bytes_free      = row[2];
+         
+      curs.close();
             
+   ############################################################################
+   def loadtablespaces(self):
+   
+      curs = self._sqliteconn.cursor();
+   
+      str_sql = """
+         SELECT
+          a.tablespace_name
+         ,a.bytes_alloc                                           AS bytes_allocated
+         ,a.bytes_alloc - a.bytes_free                            AS bytes_used
+         ,a.bytes_alloc - (a.bytes_alloc - a.bytes_free)          AS bytes_free
+         ,ROUND((a.bytes_alloc - a.bytes_free) / a.bytes_alloc,5) AS bytes_free_perc
+         FROM (  
+            SELECT
+             CASE 
+             WHEN bb.tablespace_name IS NULL
+             THEN
+               CASE
+               WHEN aa.tablespace_name IS NULL
+               THEN
+                  'UNKNOWN'
+               ELSE
+                  aa.tablespace_name
+               END
+             ELSE
+               bb.tablespace_name
+             END AS tablespace_name
+            ,CASE
+             WHEN aa.bytes_free IS NULL
+             THEN
+               0
+             ELSE
+               aa.bytes_free
+             END AS bytes_free
+            ,bb.bytes_alloc
+            ,bb.data_files
+            FROM (
+               SELECT
+                aaa.tablespace_name
+               ,SUM(aaa.bytes) AS bytes_free
+               ,MAX(aaa.bytes) AS bytes_largest
+               FROM
+               dba_free_space aaa
+               GROUP BY
+               aaa.tablespace_name
+            ) aa
+            RIGHT JOIN (
+               SELECT
+                bbb.tablespace_name
+               ,SUM(bbb.user_bytes) AS bytes_alloc
+               ,COUNT(*) AS data_files
+               FROM
+               dba_data_files bbb
+               GROUP BY
+               bbb.tablespace_name
+            ) bb
+            ON
+            aa.tablespace_name = bb.tablespace_name
+         ) a
+      """;
+      
+      self._tablespaces = {};
+      curs.execute(str_sql);
+      for row in curs:
+         tablespace_name = row[0];
+         bytes_allocated = row[1];
+         bytes_used      = row[2];
+         bytes_free      = row[3];
+      
+         self._tablespaces[tablespace_name] = Tablespace(
+             tablespace_name = tablespace_name
+            ,bytes_allocated = bytes_allocated
+            ,bytes_used      = bytes_used
+            ,bytes_free      = bytes_free
+         );
+         
+      curs.close();
+      
+   ############################################################################
+   def loadschemas(self):
+   
+      curs = self._sqliteconn.cursor();
+   
+      str_sql = """
+         SELECT
+          a.username
+         ,b.bytes_used
+         FROM 
+         dba_users a
+         LEFT JOIN (
+            SELECT
+             bb.owner
+            ,SUM(bb.bytes) AS bytes_used
+            FROM (
+               SELECT
+                bbb.owner
+               ,bbb.bytes
+               FROM
+               dba_segments bbb
+            ) bb
+            GROUP BY
+            bb.owner
+         ) b
+         ON
+         a.username = b.owner
+      """;
+      
+      self._schemas = {};
+      curs.execute(str_sql);
+      for row in curs:
+         schema_name     = row[0];
+         bytes_used      = row[1];
+      
+         self._schemas[schema_name] = Schema(
+             schema_name     = schema_name
+            ,bytes_used      = bytes_used
+         );
+         
+      curs.close();
+      
 ############################################################################### 
-def slugify(value, allow_unicode=False):
+class Tablespace(object):
+
+   def __init__(
+       self
+      ,tablespace_name
+      ,bytes_allocated
+      ,bytes_used
+      ,bytes_free
+   ):
+   
+      self._tablespace_name = tablespace_name;
+      self._bytes_allocated = bytes_allocated;
+      self._bytes_used      = bytes_used;
+      self._bytes_free      = bytes_free;
+      
+   @property
+   def tablespace_name(self):
+      return self._tablespace_name;
+      
+   @property
+   def bytes_allocated(self):
+      return self._bytes_allocated;
+      
+   @property
+   def gb_allocated(self):
+      return self.bytes_allocated / 1024 / 1024 / 1024;
+   
+   @property
+   def bytes_used(self):
+      return self._bytes_used;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+
+   @property
+   def bytes_free(self):
+      return self._bytes_free;
+   
+   @property
+   def gb_free(self):
+      return self.bytes_free / 1024 / 1024 / 1024;
+      
+############################################################################### 
+class Schema(object):
+
+   def __init__(
+       self
+      ,schema_name
+      ,bytes_used
+   ):
+   
+      self._schema_name = schema_name;
+      self._bytes_used  = bytes_used;
+      
+   @property
+   def schema_name(self):
+      return self._schema_name;
+      
+   @property
+   def bytes_used(self):
+      return self._bytes_used;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+           
+############################################################################### 
+def slugify(value,allow_unicode=False):
    """
    Taken from https://github.com/django/django/blob/master/django/utils/text.py
    Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
