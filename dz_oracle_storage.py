@@ -39,12 +39,14 @@ class Instance(object):
       
       self.loadorcl();
       
-      self._bytes_allocated = None;
-      self._bytes_used      = None;
-      self._bytes_free      = None;
-      self._tablespaces     = None;
-      self._schemas         = None;
-      self._datasets        = None;
+      self._bytes_allocated   = None;
+      self._bytes_used        = None;
+      self._bytes_free        = None;
+      self._tablespaces       = {};
+      self._tablespace_groups = {};
+      self._schemas           = {};
+      self._schema_groups     = {};
+      self._resource_groups   = {};
       
    @property
    def name(self):
@@ -154,6 +156,16 @@ class Instance(object):
       return [d for d in self.tablespaces.values()];
       
    @property
+   def tablespace_groups(self): 
+      if self._tablespace_groups is None:
+         self._tablespace_groups = {};
+      return self._tablespace_groups;
+         
+   @property
+   def tablespace_groups_l(self):
+      return [d for d in self.tablespace_groups.values()];
+      
+   @property
    def schemas(self): 
       if self._schemas is None or self._schemas == {}:
          self.loadschemas();
@@ -164,14 +176,24 @@ class Instance(object):
       return [d for d in self.schemas.values()];
       
    @property
-   def datasets(self): 
-      if self._datasets is None:
-         self.datasets = {};
-      return self._datasets;
+   def schema_groups(self): 
+      if self._schema_groups is None:
+         self._schema_groups = {};
+      return self._schema_groups;
          
    @property
-   def datasets_l(self):
-      return [d for d in self.datasets.values()];
+   def schema_groups_l(self):
+      return [d for d in self.schema_groups.values()];
+      
+   @property
+   def resource_groups(self): 
+      if self._resource_groups is None:
+         self.resource_groups = {};
+      return self._resource_groups;
+         
+   @property
+   def resource_groups_l(self):
+      return [d for d in self.resource_groups.values()];
       
    ############################################################################
    def initorcl(self):
@@ -328,6 +350,7 @@ class Instance(object):
             ,num_rows        INTEGER
             ,tablespace_name TEXT
             ,compress_for    TEXT
+            ,partitioned     TEXT
             ,iot_type        TEXT
             ,secondary       TEXT
             ,PRIMARY KEY(owner,table_name)
@@ -419,12 +442,12 @@ class Instance(object):
             ,PRIMARY KEY(parameter_name,keyword)
          );
          
-         CREATE TABLE sde_st_geometry_columns(
+         CREATE TABLE sde_st_geometry_index(
              owner           TEXT    NOT NULL
             ,table_name      TEXT    NOT NULL
-            ,column_name     TEXT    NOT NULL
-            ,geom_id         TEXT    NOT NULL
-            ,PRIMARY KEY(owner,table_name,column_name)
+            ,index_name      TEXT    NOT NULL
+            ,index_id        TEXT    NOT NULL
+            ,PRIMARY KEY(owner,table_name,index_name)
          );
          
          CREATE VIEW segments_compression(
@@ -435,6 +458,7 @@ class Instance(object):
             ,tablespace_name
             ,bytes_used
             ,compression
+            ,partitioned
             ,iot_type
             ,secondary
          )
@@ -495,6 +519,13 @@ class Instance(object):
           ELSE
             'NONE'
           END AS compression
+         ,CASE
+          WHEN bbb.segment_type = 'TABLE'
+          THEN
+            ccc.partitioned
+          ELSE
+            NULL
+          END AS partitioned
          ,CASE
           WHEN bbb.segment_type = 'TABLE'
           THEN
@@ -669,10 +700,11 @@ class Instance(object):
             ,num_rows
             ,tablespace_name
             ,compress_for
+            ,partitioned
             ,iot_type
             ,secondary
          ) VALUES (
-            ?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?
          )
       """;
       
@@ -683,6 +715,7 @@ class Instance(object):
          ,a.num_rows
          ,a.tablespace_name
          ,a.compress_for
+         ,a.partitioned
          ,a.iot_type
          ,a.secondary
          FROM
@@ -986,11 +1019,11 @@ class Instance(object):
 
          ## sde_st_geometry_columns
          str_to = """
-            INSERT INTO sde_st_geometry_columns(
+            INSERT INTO sde_st_geometry_index(
                 owner
                ,table_name
-               ,column_name
-               ,geom_id
+               ,index_name
+               ,index_id
             ) VALUES (
                ?,?,?,?
             )
@@ -1000,10 +1033,10 @@ class Instance(object):
             SELECT
              a.owner
             ,a.table_name
-            ,a.column_name
-            ,a.geom_id
+            ,a.index_name
+            ,a.index_id
             FROM
-            sde.st_geometry_columns a
+            sde.st_geometry_index a
          """;
          str_from += self.dts_asof;
          
@@ -1216,30 +1249,163 @@ class Instance(object):
       curs.close();
       
    ############################################################################
-   def add_dataset(
+   def add_tablespace_group(
        self
-      ,dataset_name
+      ,tablespace_group_name
    ):
    
-      if self._datasets is None:
-         self._datasets = {};
+      if self._tablespace_groups is None:
+         self._tablespace_groups = {};
          
-      self._datasets[dataset_name] = Dataset(
-          parent       = self
-         ,dataset_name = dataset_name
+      self._tablespace_groups[tablespace_group_name] = TablespaceGroup(
+          parent                = self
+         ,tablespace_group_name = tablespace_group_name
       );
       
    ############################################################################
-   def delete_dataset(
+   def delete_tablespace_group(
        self
-      ,dataset_name
+      ,tablespace_group_name
    ):
    
-      if self._datasets is None:
-         self._datasets = {};
+      if self._tablespace_groups is None:
+         self._tablespace_groups = {};
 
-      if dataset_name in self._datasets:
-         del self._datasets[dataset_name];
+      if tablespace_group_name in self._tablespace_groups:
+         del self._tablespace_groups[tablespace_group_name];
+      
+   ############################################################################
+   def add_schema_group(
+       self
+      ,schema_group_name
+   ):
+   
+      if self._schema_groups is None:
+         self._schema_groups = {};
+         
+      self._schema_groups[schema_group_name] = SchemaGroup(
+          parent              = self
+         ,schema_group_name   = schema_group_name
+      );
+      
+   ############################################################################
+   def delete_schema_group(
+       self
+      ,schema_group_name
+   ):
+   
+      if self._schema_groups is None:
+         self._schema_groups = {};
+
+      if schema_group_name in self._schema_groups:
+         del self._schema_groups[schema_group_name];
+      
+   ############################################################################
+   def add_resource_group(
+       self
+      ,resource_group_name
+   ):
+   
+      if self._resource_groups is None:
+         self._resource_groups = {};
+         
+      self._resource_groups[resource_group_name] = ResourceGroup(
+          parent              = self
+         ,resource_group_name = resource_group_name
+      );
+      
+   ############################################################################
+   def delete_resource_group(
+       self
+      ,resource_group_name
+   ):
+   
+      if self._resource_groups is None:
+         self._resource_groups = {};
+
+      if resource_group_name in self._resource_groups:
+         del self._resource_groups[resource_group_name];
+         
+############################################################################### 
+class TablespaceGroup(object):
+
+   def __init__(
+       self
+      ,parent
+      ,tablespace_group_name
+   ):
+   
+      self._parent                = parent;
+      self._tablespace_group_name = tablespace_group_name;
+      self._tablespaces           = {};
+      
+   @property
+   def tablespace_group_name(self):
+      return self._tablespace_group_name;
+      
+   @property
+   def tablespaces(self):
+      return self._tablespaces;
+      
+   @property
+   def tablespaces_l(self):
+      return [d for d in self.tablespaces.values()];
+
+   @property
+   def bytes_allocated(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_allocated;
+      return rez;
+      
+   @property
+   def gb_allocated(self):
+      return self.bytes_allocated / 1024 / 1024 / 1024;
+   
+   @property
+   def bytes_used(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_used;
+      return rez;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+
+   @property
+   def bytes_free(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_free;
+      return rez;
+   
+   @property
+   def gb_free(self):
+      return self.bytes_free / 1024 / 1024 / 1024;
+      
+   ############################################################################
+   def add_tablespace(
+       self
+      ,tablespace_name
+   ):
+   
+      if self._tablespaces is None:
+         self._tablespaces = {};
+         
+      self._tablespaces[tablespace_name] = self._parent.tablespaces[tablespace_name];
+      
+   ############################################################################
+   def delete_tablespace(
+       self
+      ,tablespace_name
+   ):
+   
+      if self._tablespaces is None:
+         self._tablespaces = {};
+
+      if tablespace_name in self._tablespaces:
+         del self._tablespaces[tablespace_name];
          
 ############################################################################### 
 class Tablespace(object):
@@ -1287,6 +1453,109 @@ class Tablespace(object):
    @property
    def gb_free(self):
       return self.bytes_free / 1024 / 1024 / 1024;
+     
+############################################################################### 
+class SchemaGroup(object):
+
+   def __init__(
+       self
+      ,parent
+      ,schema_group_name
+   ):
+   
+      self._parent              = parent
+      self._schema_group_name   = schema_group_name;
+      self._schemas             = {};
+      
+   @property
+   def schema_group_name(self):
+      return self._schema_group_name;
+      
+   @property
+   def schemas(self):
+      return self._schemas;
+      
+   @property
+   def schemas_l(self):
+      return [d for d in self.schemas.values()];
+      
+   @property
+   def bytes_used(self):
+      rez = 0;
+      for item in self.schemas.values():
+         rez += item.bytes_used;
+      return rez;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_none(self):
+      rez = 0;
+      for item in self.schemas.values():
+         rez += item.bytes_comp_none;
+      return rez;
+      
+   @property
+   def gb_comp_none(self):
+      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_low(self):
+      rez = 0;
+      for item in self.schemas.values():
+         rez += item.bytes_comp_low;
+      return rez;
+      
+   @property
+   def gb_comp_low(self):
+      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_high(self):
+      rez = 0;
+      for item in self.schemas.values():
+         rez += item.bytes_comp_high;
+      return rez;
+      
+   @property
+   def gb_comp_high(self):
+      return self.bytes_comp_high / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_unk(self):
+      rez = 0;
+      for item in self.schemas.values():
+         rez += item.bytes_comp_unk;
+      return rez;
+      
+   @property
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+      
+   ############################################################################
+   def add_schema(
+       self
+      ,schema_name
+   ):
+   
+      if self._schemas is None:
+         self._schemas = {};
+         
+      self._schemas[schema_name] = self._parent.schemas[schema_name];
+      
+   ############################################################################
+   def delete_schema(
+       self
+      ,schema_name
+   ):
+   
+      if self._schemas is None:
+         self._schemas = {};
+
+      if schema_name in self._schemas:
+         del self._schemas[schema_name];
       
 ############################################################################### 
 class Schema(object):
@@ -1356,18 +1625,18 @@ class Schema(object):
       return self.bytes_comp_unk / 1024 / 1024 / 1024;
       
 ############################################################################### 
-class Dataset(object):
+class ResourceGroup(object):
 
    def __init__(
        self
       ,parent
-      ,dataset_name
+      ,resource_group_name
    ):
    
-      self._parent          = parent;
-      self._sqliteconn      = parent._sqliteconn;
-      self._dataset_name    = dataset_name;
-      self._resources       = {};
+      self._parent              = parent;
+      self._sqliteconn          = parent._sqliteconn;
+      self._resource_group_name = resource_group_name;
+      self._resources           = {};
       
    @property
    def dataset_name(self):
@@ -1424,65 +1693,86 @@ class Resource(object):
       self._sqliteconn      = parent._sqliteconn;
       self._table_owner     = table_owner;
       self._table_name      = table_name;
-      self._secondaries     = [];
+      self._secondaries     = {};
       
       # Verify item is eligible resource item
       curs = self._sqliteconn.cursor();
    
       str_sql = """
          SELECT
-          a.partition_name
-         ,a.segment_type
+          a.owner
+         ,a.table_name
+         ,b.partition_name
+         ,CASE
+          WHEN b.segment_type IS NULL AND a.iot_type = 'IOT'
+          THEN
+            'TABLE'
+          WHEN b.segment_type IS NULL AND a.partitioned = 'YES'
+          THEN
+            'TABLE'
+          ELSE
+            b.segment_type
+          END AS segment_type
          ,a.tablespace_name
-         ,a.bytes_used
-         ,CASE WHEN a.compression = 'NONE' THEN a.bytes_used ELSE 0 END AS bytes_comp_none
-         ,CASE WHEN a.compression = 'LOW'  THEN a.bytes_used ELSE 0 END AS bytes_comp_low
-         ,CASE WHEN a.compression = 'HIGH' THEN a.bytes_used ELSE 0 END AS bytes_comp_high
-         ,CASE WHEN a.compression = 'UNK'  THEN a.bytes_used ELSE 0 END AS bytes_comp_unk
+         ,b.bytes_used
+         ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+         ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+         ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+         ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+         ,a.partitioned
          ,a.iot_type
          FROM 
-         segments_compression a
+         dba_tables a
+         LEFT JOIN
+         segments_compression b
+         ON
+             a.owner         = b.owner
+         AND a.table_name    = b.segment_name
+         AND b.partition_name IS NULL
          WHERE
-             a.owner        = :p01
-         AND a.segment_name = :p02
-         AND a.secondary    = 'N'
+             a.owner         = :p01
+         AND a.table_name    = :p02
+         AND a.secondary     = 'N'
       """;
       
       curs.execute(
           str_sql
          ,{'p01':table_owner,'p02':table_name}
       );
-      segment_type = None;
+      table_name = None;
       for row in curs:
-         partition_name  = row[0];
-         segment_type    = row[1];
-         tablespace_name = row[2];
-         bytes_used      = row[3];
-         bytes_comp_none = row[4];
-         bytes_comp_low  = row[5];
-         bytes_comp_high = row[6];
-         bytes_comp_unk  = row[7];
-         iot_type        = row[8];
+         owner           = row[0];
+         table_name      = row[1];
+         partition_name  = row[2];
+         segment_type    = row[3];
+         tablespace_name = row[4];
+         bytes_used      = row[5];
+         bytes_comp_none = row[6];
+         bytes_comp_low  = row[7];
+         bytes_comp_high = row[8];
+         bytes_comp_unk  = row[9];
+         partitioned     = row[10];
+         iot_type        = row[11];
 
       # Abend hard if the item does have seconday = 'N'
-      if segment_type is None:
+      if table_name is None:
          raise Exception(self.table_owner + '.' + self.table_name + ' is not a resource.');     
-      
-      self._secondaries.append(
-         Secondary(
-             parent          = self
-            ,depth           = 0
-            ,owner           = table_owner
-            ,segment_name    = table_name
-            ,partition_name  = partition_name
-            ,segment_type    = segment_type
-            ,tablespace_name = tablespace_name
-            ,bytes_used      = bytes_used
-            ,bytes_comp_none = bytes_comp_none
-            ,bytes_comp_low  = bytes_comp_low
-            ,bytes_comp_high = bytes_comp_high
-            ,bytes_comp_unk  = bytes_comp_unk
-         )
+
+      self._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+          parent_resource = self
+         ,depth           = 0
+         ,owner           = table_owner
+         ,segment_name    = table_name
+         ,partition_name  = partition_name
+         ,segment_type    = segment_type
+         ,tablespace_name = tablespace_name
+         ,bytes_used      = bytes_used
+         ,bytes_comp_none = bytes_comp_none
+         ,bytes_comp_low  = bytes_comp_low
+         ,bytes_comp_high = bytes_comp_high
+         ,bytes_comp_unk  = bytes_comp_unk
+         ,partitioned     = partitioned
+         ,iot_type        = iot_type
       );
             
       curs.close();
@@ -1500,15 +1790,70 @@ class Resource(object):
       return self._secondaries;
       
    @property
-   def secondary_count(self):
-      return len(self._secondaries);
+   def secondaries_l(self):
+      return [d for d in self.secondaries.values()];
+      
+   @property
+   def bytes_used(self):
+      rez = 0;
+      for item in self.secondaries.values():
+         rez += item.bytes_used;
+      return rez;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_none(self):
+      rez = 0;
+      for item in self.secondaries.values():
+         rez += item.bytes_comp_none;
+      return rez;
+      
+   @property
+   def gb_comp_none(self):
+      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_low(self):
+      rez = 0;
+      for item in self.secondaries.values():
+         rez += item.bytes_comp_low;
+      return rez;
+      
+   @property
+   def gb_comp_low(self):
+      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_high(self):
+      rez = 0;
+      for item in self.secondaries.values():
+         rez += item.bytes_comp_high;
+      return rez;
+   
+   @property
+   def gb_comp_high(self):
+      return self.bytes_comp_high / 1024 / 1024 / 1024;
+   
+   @property
+   def bytes_comp_unk(self):
+      rez = 0;
+      for item in self.secondaries.values():
+         rez += item.bytes_comp_unk;
+      return rez;
+      
+   @property
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk / 1024 / 1024 / 1024;
       
 ############################################################################### 
 class Secondary(object):
 
    def __init__(
        self
-      ,parent
+      ,parent_resource
       ,depth
       ,owner
       ,segment_name
@@ -1520,21 +1865,524 @@ class Secondary(object):
       ,bytes_comp_low  = None
       ,bytes_comp_high = None
       ,bytes_comp_unk  = None
+      ,index_type      = None
+      ,ityp_owner      = None
+      ,ityp_name       = None
+      ,partitioned     = None
+      ,iot_type        = None
    ):
    
-      self._parent          = parent;
-      self._sqliteconn      = parent._sqliteconn;
+      self._parent_resource = parent_resource;
       self._owner           = owner;
       self._depth           = depth;
       self._segment_name    = segment_name;
       self._partition_name  = partition_name;
       self._segment_type    = segment_type;
-      self._tablespace_name = tablespace_name
-      self._bytes_used      = bytes_used;
-      self._bytes_comp_none = bytes_comp_none;
-      self._bytes_comp_low  = bytes_comp_low;
-      self._bytes_comp_high = bytes_comp_high;
-      self._bytes_comp_unk  = bytes_comp_unk;
+      self._tablespace_name = tablespace_name;
+      
+      if bytes_used is None:
+         self._bytes_used   = 0;
+      else:
+         self._bytes_used   = bytes_used;
+      if bytes_comp_none is None:
+         self._bytes_comp_none = 0;
+      else:
+         self._bytes_comp_none = bytes_comp_none;
+      if bytes_comp_low is None:
+         self._bytes_comp_low = 0;
+      else:
+         self._bytes_comp_low  = bytes_comp_low;
+      if bytes_comp_high is None:
+         self._bytes_comp_high = 0;
+      else:
+         self._bytes_comp_high = bytes_comp_high;
+      if bytes_comp_unk is None:
+         self._bytes_comp_unk = 0;
+      else:
+         self._bytes_comp_unk  = bytes_comp_unk;
+         
+      self._index_type      = index_type;
+      self._ityp_owner      = ityp_owner;
+      self._ityp_name       = ityp_name;
+      self._partitioned     = partitioned;
+      self._iot_type        = iot_type;
+      
+      curs = parent_resource._sqliteconn.cursor();
+      
+      if self._segment_type in ['NESTED TABLE','TABLE','TABLE PARTITION','TABLE SUBPARTITION'] \
+      or (self._segment_type is None and self._iot_type == 'IOT'):
+         
+         # Harvest all table lob segments and indexes
+         str_sql = """
+            SELECT
+             a.owner
+            ,a.segment_name
+            ,b.partition_name
+            ,b.segment_type
+            ,b.tablespace_name
+            ,b.bytes_used
+            ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+            ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+            ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+            ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+            FROM
+            dba_lobs a
+            LEFT JOIN
+            segments_compression b
+            ON
+                a.owner        = b.owner
+            AND a.segment_name = b.segment_name
+            WHERE
+                a.owner        = :p01
+            AND a.table_name   = :p02
+            
+            UNION ALL
+            
+            SELECT
+             c.owner
+            ,c.index_name
+            ,d.partition_name
+            ,d.segment_type
+            ,d.tablespace_name
+            ,d.bytes_used
+            ,CASE WHEN d.compression = 'NONE' THEN d.bytes_used ELSE 0 END AS bytes_comp_none
+            ,CASE WHEN d.compression = 'LOW'  THEN d.bytes_used ELSE 0 END AS bytes_comp_low
+            ,CASE WHEN d.compression = 'HIGH' THEN d.bytes_used ELSE 0 END AS bytes_comp_high
+            ,CASE WHEN d.compression = 'UNK'  THEN d.bytes_used ELSE 0 END AS bytes_comp_unk
+            FROM
+            dba_lobs c
+            LEFT JOIN
+            segments_compression d
+            ON
+                c.owner        = d.owner
+            AND c.index_name   = d.segment_name
+            WHERE
+                c.owner        = :p03
+            AND c.table_name   = :p04
+         """;
+
+         curs.execute(
+             str_sql
+            ,{
+                'p01':self._owner,'p02':self._segment_name
+               ,'p03':self._owner,'p04':self._segment_name
+             }
+         );
+         
+         for row in curs: 
+            owner           = row[0];
+            segment_name    = row[1];
+            partition_name  = row[2];
+            segment_type    = row[3];
+            tablespace_name = row[4];
+            bytes_used      = row[5];
+            bytes_comp_none = row[6];
+            bytes_comp_high = row[7];
+            bytes_comp_low  = row[8];
+            bytes_comp_unk  = row[9];
+         
+            if (owner,segment_name,partition_name) not in parent_resource._secondaries:
+               parent_resource._secondaries[(owner,segment_name,partition_name)] = Secondary(
+                   parent_resource = parent_resource
+                  ,owner           = owner
+                  ,depth           = depth + 1
+                  ,segment_name    = segment_name
+                  ,partition_name  = partition_name
+                  ,segment_type    = segment_type
+                  ,tablespace_name = tablespace_name
+                  ,bytes_used      = bytes_used
+                  ,bytes_comp_none = bytes_comp_none
+                  ,bytes_comp_low  = bytes_comp_low
+                  ,bytes_comp_high = bytes_comp_high
+                  ,bytes_comp_unk  = bytes_comp_unk
+               );
+            
+         # Harvest all table indexes
+         str_sql = """
+            SELECT
+             a.owner
+            ,a.index_name
+            ,b.partition_name
+            ,b.segment_type
+            ,b.tablespace_name
+            ,b.bytes_used
+            ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+            ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+            ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+            ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+            ,a.index_type
+            ,a.ityp_owner
+            ,a.ityp_name
+            FROM
+            dba_indexes a
+            LEFT JOIN
+            segments_compression b
+            ON
+                a.owner        = b.owner
+            AND a.index_name   = b.segment_name
+            WHERE
+                a.table_owner = :p01
+            AND a.table_name  = :p02
+         """;
+
+         curs.execute(
+             str_sql
+            ,{
+               'p01':self._owner,'p02':self._segment_name
+             }
+         );
+         
+         for row in curs:
+            index_owner     = row[0];
+            index_name      = row[1];
+            partition_name  = row[2];
+            segment_type    = row[3];
+            tablespace_name = row[4];
+            bytes_used      = row[5];
+            bytes_comp_none = row[6];
+            bytes_comp_low  = row[7];
+            bytes_comp_high = row[8];
+            bytes_comp_unk  = row[9];
+            index_type      = row[10];
+            ityp_owner      = row[11];
+            ityp_name       = row[12];
+            
+            if (index_owner,index_name,partition_name) not in parent_resource._secondaries:
+               parent_resource._secondaries[(index_owner,index_name,partition_name)] = Secondary(
+                   parent_resource = parent_resource
+                  ,owner           = index_owner
+                  ,depth           = depth + 1
+                  ,segment_name    = index_name
+                  ,partition_name  = partition_name
+                  ,segment_type    = segment_type
+                  ,tablespace_name = tablespace_name
+                  ,bytes_used      = bytes_used
+                  ,bytes_comp_none = bytes_comp_none
+                  ,bytes_comp_low  = bytes_comp_low
+                  ,bytes_comp_high = bytes_comp_high
+                  ,bytes_comp_unk  = bytes_comp_unk
+                  ,index_type      = index_type
+                  ,ityp_owner      = ityp_owner
+                  ,ityp_name       = ityp_name
+               );
+    
+      elif self._index_type == 'DOMAIN':
+      
+         curs2 = parent_resource._sqliteconn.cursor();
+               
+         if self._ityp_owner == 'CTXSYS' and self._ityp_name == 'CONTEXT':
+            str_sql = """
+               SELECT
+                a.owner
+               ,a.table_name
+               ,b.partition_name
+               ,b.segment_type
+               ,b.tablespace_name
+               ,b.bytes_used
+               ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+               ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+               ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+               ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+               ,a.iot_type
+               FROM
+               dba_tables a
+               LEFT JOIN
+               segments_compression b
+               ON
+                   a.owner         = b.owner
+               AND a.table_name    = b.segment_name
+               WHERE
+                   a.owner         = :p01
+               AND a.table_name LIKE :p02
+            """;
+            
+            curs.execute(
+                str_sql
+               ,{
+                  'p01':self._owner,'p02':'DR$' + self._segment_name + '$%'
+                }
+            );
+            
+            for row in curs:
+               table_owner     = row[0];
+               table_name      = row[1];
+               partition_name  = row[2];
+               segment_type    = row[3];
+               tablespace_name = row[4];
+               bytes_used      = row[5];
+               bytes_comp_none = row[6];
+               bytes_comp_low  = row[7];
+               bytes_comp_high = row[8];
+               bytes_comp_unk  = row[9];
+               iot_type        = row[10];
+               
+               if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
+                  parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+                      parent_resource = parent_resource
+                     ,depth           = depth + 1
+                     ,owner           = table_owner
+                     ,segment_name    = table_name
+                     ,partition_name  = partition_name
+                     ,segment_type    = segment_type
+                     ,tablespace_name = tablespace_name
+                     ,bytes_used      = bytes_used
+                     ,bytes_comp_none = bytes_comp_none
+                     ,bytes_comp_low  = bytes_comp_low
+                     ,bytes_comp_high = bytes_comp_high
+                     ,bytes_comp_unk  = bytes_comp_unk
+                     ,iot_type        = iot_type
+                  );
+
+         elif self._ityp_owner == 'MDSYS' and self._ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
+            str_sql = """
+               SELECT
+                a.sdo_index_owner
+               ,a.sdo_index_table
+               FROM
+               sdo_index_metadata_table a
+               WHERE
+                   a.sdo_index_owner = :p01
+               AND a.sdo_index_name  = :p02
+            """;
+            
+            curs.execute(
+                str_sql
+               ,{
+                  'p01':self._owner,'p02':self._segment_name
+                }
+            );
+            
+            domain_stub = None;
+            for row in curs:
+               domain_owner = row[0];
+               domain_stub  = row[1];
+               
+            if domain_stub is None:
+               raise Exception('mdsys spatial index error');
+            
+            str_sql = """
+               SELECT
+                a.owner
+               ,a.table_name
+               ,b.partition_name
+               ,b.segment_type
+               ,b.tablespace_name
+               ,b.bytes_used
+               ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+               ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+               ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+               ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+               ,a.iot_type
+               FROM
+               dba_tables a
+               LEFT JOIN
+               segments_compression b
+               ON
+                   a.owner        = b.owner
+               AND a.table_name   = b.segment_name
+               WHERE
+                   a.owner        = :p01
+               AND a.table_name IN (:p02,:p03,:p04)
+            """;
+            
+            curs.execute(
+                str_sql
+               ,{
+                   'p01':self._owner
+                  ,'p02':domain_stub
+                  ,'p03':domain_stub.replace("MDRT","MDXT")
+                  ,'p04':domain_stub.replace("MDRT","MDTP")
+                }
+            );
+            
+            for row in curs:
+               table_owner     = row[0];
+               table_name      = row[1];
+               partition_name  = row[2];
+               segment_type    = row[3];
+               tablespace_name = row[4];
+               bytes_used      = row[5];
+               bytes_comp_none = row[6];
+               bytes_comp_low  = row[7];
+               bytes_comp_high = row[8];
+               bytes_comp_unk  = row[9];
+               iot_type        = row[10];
+               
+               if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
+                  parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+                      parent_resource = parent_resource
+                     ,depth           = depth + 1
+                     ,owner           = table_owner
+                     ,segment_name    = table_name
+                     ,partition_name  = partition_name
+                     ,segment_type    = segment_type
+                     ,tablespace_name = tablespace_name
+                     ,bytes_used      = bytes_used
+                     ,bytes_comp_none = bytes_comp_none
+                     ,bytes_comp_low  = bytes_comp_low
+                     ,bytes_comp_high = bytes_comp_high
+                     ,bytes_comp_unk  = bytes_comp_unk
+                     ,iot_type        = iot_type
+                  );
+
+         elif self._ityp_owner == 'SDE' and self._ityp_name == 'ST_SPATIAL_INDEX':
+            str_sql = """
+               SELECT
+               a.index_id
+               FROM
+               sde_st_geometry_index a
+               WHERE
+                   a.owner      = :p01
+               AND a.index_name = :p02 
+            """;
+
+            curs.execute(
+                str_sql
+               ,{
+                  'p01':self._owner,'p02':self._segment_name
+                }
+            );
+            
+            domain_stub = None;
+            for row in curs:
+               domain_stub = row[0];
+               
+            if domain_stub is None:
+               raise Exception('sde spatial index error');
+               
+            str_sql = """
+               SELECT
+                a.owner
+               ,a.table_name
+               ,b.partition_name
+               ,b.segment_type
+               ,b.tablespace_name
+               ,b.bytes_used
+               ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+               ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+               ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+               ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+               ,a.iot_type
+               FROM
+               dba_tables a
+               LEFT JOIN
+               segments_compression b
+               ON
+                   a.owner        = b.owner
+               AND a.table_name   = b.segment_name
+               WHERE
+                   a.owner        = :p01
+               AND a.table_name   = :p02
+            """;
+            
+            curs.execute(
+                str_sql
+               ,{
+                   'p01':self._owner
+                  ,'p02':'S' + domain_stub + '_IDX$'
+                }
+            );
+            
+            for row in curs:
+               table_owner     = row[0];
+               table_name      = row[1];
+               partition_name  = row[2];
+               segment_type    = row[3];
+               tablespace_name = row[4];
+               bytes_used      = row[5];
+               bytes_comp_none = row[6];
+               bytes_comp_low  = row[7];
+               bytes_comp_high = row[8];
+               bytes_comp_unk  = row[9];
+               iot_type        = row[10];
+               
+               if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
+                  parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+                      parent_resource = parent_resource
+                     ,depth           = depth + 1
+                     ,owner           = table_owner
+                     ,segment_name    = table_name
+                     ,partition_name  = partition_name
+                     ,segment_type    = segment_type
+                     ,tablespace_name = tablespace_name
+                     ,bytes_used      = bytes_used
+                     ,bytes_comp_none = bytes_comp_none
+                     ,bytes_comp_low  = bytes_comp_low
+                     ,bytes_comp_high = bytes_comp_high
+                     ,bytes_comp_unk  = bytes_comp_unk
+                     ,iot_type        = iot_type
+                  );
+            
+         else:
+            sys.stderr.write('unhandled domain index: ' + str(ityp_owner) + '.' + str(ityp_name));            
+   
+         curs2.close(); 
+         
+      #########################################################################
+      # Run down each partition
+      if self._partitioned == 'YES':
+         str_sql = """
+            SELECT
+             a.table_owner
+            ,a.table_name
+            ,a.partition_name
+            ,b.segment_type
+            ,a.tablespace_name
+            ,b.bytes_used
+            ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+            ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+            ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+            ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+            FROM
+            dba_tab_partitions a
+            LEFT JOIN
+            segments_compression b
+            ON
+                a.table_owner  = b.owner
+            AND a.table_name   = b.segment_name
+            AND a.partition_name = b.partition_name
+            WHERE
+                a.table_owner  = :p01
+            AND a.table_name   = :p02
+         """;
+         
+         curs.execute(
+             str_sql
+            ,{
+                'p01':self._owner
+               ,'p02':self._segment_name
+             }
+         );
+         
+         for row in curs:
+            table_owner     = row[0];
+            table_name      = row[1];
+            partition_name  = row[2];
+            segment_type    = row[3];
+            tablespace_name = row[4];
+            bytes_used      = row[5];
+            bytes_comp_none = row[6];
+            bytes_comp_low  = row[7];
+            bytes_comp_high = row[8];
+            bytes_comp_unk  = row[9];
+            
+            if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
+               parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+                   parent_resource = parent_resource
+                  ,depth           = depth + 1
+                  ,owner           = table_owner
+                  ,segment_name    = table_name
+                  ,partition_name  = partition_name
+                  ,segment_type    = segment_type
+                  ,tablespace_name = tablespace_name
+                  ,bytes_used      = bytes_used
+                  ,bytes_comp_none = bytes_comp_none
+                  ,bytes_comp_low  = bytes_comp_low
+                  ,bytes_comp_high = bytes_comp_high
+                  ,bytes_comp_unk  = bytes_comp_unk
+               );
+ 
+      curs.close();
       
    @property
    def depth(self):
