@@ -44,6 +44,7 @@ class Instance(object):
       self._bytes_free      = None;
       self._tablespaces     = None;
       self._schemas         = None;
+      self._datasets        = None;
       
    @property
    def name(self):
@@ -161,6 +162,16 @@ class Instance(object):
    @property
    def schemas_l(self):
       return [d for d in self.schemas.values()];
+      
+   @property
+   def datasets(self): 
+      if self._datasets is None:
+         self.datasets = {};
+      return self._datasets;
+         
+   @property
+   def datasets_l(self):
+      return [d for d in self.datasets.values()];
       
    ############################################################################
    def initorcl(self):
@@ -318,7 +329,17 @@ class Instance(object):
             ,tablespace_name TEXT
             ,compress_for    TEXT
             ,iot_type        TEXT
+            ,secondary       TEXT
             ,PRIMARY KEY(owner,table_name)
+         );
+         
+         CREATE TABLE dba_tab_partitions(
+             table_owner     TEXT    NOT NULL
+            ,table_name      TEXT    NOT NULL
+            ,partition_name  TEXT    NOT NULL
+            ,tablespace_name TEXT
+            ,compress_for    TEXT
+            ,PRIMARY KEY(table_owner,table_name,partition_name)
          );
          
          CREATE TABLE dba_tab_columns(
@@ -339,6 +360,8 @@ class Instance(object):
             ,status          TEXT
             ,domidx_status   TEXT
             ,domidx_opstatus TEXT
+            ,ityp_owner      TEXT
+            ,ityp_name       TEXT
             ,PRIMARY KEY(owner,index_name)
          );
          
@@ -403,6 +426,107 @@ class Instance(object):
             ,geom_id         TEXT    NOT NULL
             ,PRIMARY KEY(owner,table_name,column_name)
          );
+         
+         CREATE VIEW segments_compression(
+             owner
+            ,segment_name
+            ,partition_name
+            ,segment_type
+            ,tablespace_name
+            ,bytes_used
+            ,compression
+            ,iot_type
+            ,secondary
+         )
+         AS
+         SELECT
+          bbb.owner
+         ,bbb.segment_name
+         ,bbb.partition_name
+         ,bbb.segment_type
+         ,bbb.tablespace_name
+         ,bbb.bytes AS bytes_used
+         ,CASE
+          WHEN bbb.segment_type = 'TABLE'
+          THEN
+            CASE 
+            WHEN ccc.compress_for IS NULL
+            THEN
+               'NONE'
+            WHEN ccc.compress_for IN ('BASIC')
+            THEN
+               'LOW'
+            WHEN ccc.compress_for IN ('ADVANCED')
+            THEN
+               'HIGH'
+            ELSE
+               'UNK'
+            END
+          WHEN bbb.segment_type = 'INDEX'
+          THEN
+            CASE 
+            WHEN ddd.compression IS NULL OR ddd.compression = 'DISABLED'
+            THEN
+               'NONE'
+            WHEN ddd.compression IN ('ENABLED')
+            THEN
+               'LOW'
+            WHEN ddd.compression IN ('ADVANCED HIGH')
+            THEN
+               'HIGH'
+            ELSE
+               'UNK'
+            END
+          WHEN bbb.segment_type = 'PARTITION'
+          THEN
+            CASE 
+            WHEN eee.compress_for IS NULL
+            THEN
+               'NONE'
+            WHEN eee.compress_for IN ('BASIC')
+            THEN
+               'LOW'
+            WHEN eee.compress_for IN ('ADVANCED')
+            THEN
+               'HIGH'
+            ELSE
+               'UNK'
+            END
+          ELSE
+            'NONE'
+          END AS compression
+         ,CASE
+          WHEN bbb.segment_type = 'TABLE'
+          THEN
+            ccc.iot_type
+          ELSE
+            NULL
+          END AS iot_type
+         ,CASE
+          WHEN bbb.segment_type = 'TABLE'
+          THEN
+            ccc.secondary
+          ELSE
+            NULL
+          END AS secondary
+         FROM
+         dba_segments bbb
+         LEFT JOIN
+         dba_tables ccc
+         ON
+             bbb.owner          = ccc.owner
+         AND bbb.segment_name   = ccc.table_name
+         LEFT JOIN
+         dba_indexes ddd
+         ON
+             bbb.owner          = ddd.owner
+         AND bbb.segment_name   = ddd.index_name
+         LEFT JOIN
+         dba_tab_partitions eee
+         ON
+             bbb.owner          = eee.table_owner
+         AND bbb.segment_name   = eee.table_name
+         AND bbb.partition_name = eee.partition_name;
       
       """);
       
@@ -546,8 +670,9 @@ class Instance(object):
             ,tablespace_name
             ,compress_for
             ,iot_type
+            ,secondary
          ) VALUES (
-            ?,?,?,?,?,?
+            ?,?,?,?,?,?,?
          )
       """;
       
@@ -559,8 +684,38 @@ class Instance(object):
          ,a.tablespace_name
          ,a.compress_for
          ,a.iot_type
+         ,a.secondary
          FROM
          dba_tables a
+      """;
+      str_from += self.dts_asof;
+      
+      fromc.execute(str_from);
+      for row in fromc:
+         toc.execute(str_to,row);
+         
+      ## dba_tab_partitions
+      str_to = """
+         INSERT INTO dba_tab_partitions(
+             table_owner
+            ,table_name
+            ,partition_name
+            ,tablespace_name
+            ,compress_for
+         ) VALUES (
+            ?,?,?,?,?
+         )
+      """;
+      
+      str_from = """
+         SELECT
+          a.table_owner
+         ,a.table_name
+         ,a.partition_name
+         ,a.tablespace_name
+         ,a.compress_for
+         FROM
+         dba_tab_partitions a
       """;
       str_from += self.dts_asof;
       
@@ -607,8 +762,10 @@ class Instance(object):
             ,status
             ,domidx_status
             ,domidx_opstatus
+            ,ityp_owner
+            ,ityp_name
          ) VALUES (
-            ?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -623,6 +780,8 @@ class Instance(object):
          ,a.status
          ,a.domidx_status
          ,a.domidx_opstatus
+         ,a.ityp_owner
+         ,a.ityp_name
          FROM
          dba_indexes a
       """;
@@ -993,7 +1152,8 @@ class Instance(object):
          bytes_free      = row[3];
       
          self._tablespaces[tablespace_name] = Tablespace(
-             tablespace_name = tablespace_name
+             parent          = self
+            ,tablespace_name = tablespace_name
             ,bytes_allocated = bytes_allocated
             ,bytes_used      = bytes_used
             ,bytes_free      = bytes_free
@@ -1010,19 +1170,22 @@ class Instance(object):
          SELECT
           a.username
          ,b.bytes_used
+         ,b.bytes_comp_none
+         ,b.bytes_comp_low
+         ,b.bytes_comp_high
+         ,b.bytes_comp_unk
          FROM 
          dba_users a
          LEFT JOIN (
             SELECT
              bb.owner
-            ,SUM(bb.bytes) AS bytes_used
-            FROM (
-               SELECT
-                bbb.owner
-               ,bbb.bytes
-               FROM
-               dba_segments bbb
-            ) bb
+            ,SUM(bb.bytes_used) AS bytes_used
+            ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
+            ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
+            ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
+            ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
+            FROM
+            segments_compression bb
             GROUP BY
             bb.owner
          ) b
@@ -1035,25 +1198,63 @@ class Instance(object):
       for row in curs:
          schema_name     = row[0];
          bytes_used      = row[1];
+         bytes_comp_none = row[2];
+         bytes_comp_low  = row[3];
+         bytes_comp_high = row[4];
+         bytes_comp_unk  = row[5];
       
          self._schemas[schema_name] = Schema(
-             schema_name     = schema_name
+             self
+            ,schema_name     = schema_name
             ,bytes_used      = bytes_used
+            ,bytes_comp_none = bytes_comp_none
+            ,bytes_comp_low  = bytes_comp_low
+            ,bytes_comp_high = bytes_comp_high
+            ,bytes_comp_unk  = bytes_comp_unk
          );
          
       curs.close();
       
+   ############################################################################
+   def add_dataset(
+       self
+      ,dataset_name
+   ):
+   
+      if self._datasets is None:
+         self._datasets = {};
+         
+      self._datasets[dataset_name] = Dataset(
+          parent       = self
+         ,dataset_name = dataset_name
+      );
+      
+   ############################################################################
+   def delete_dataset(
+       self
+      ,dataset_name
+   ):
+   
+      if self._datasets is None:
+         self._datasets = {};
+
+      if dataset_name in self._datasets:
+         del self._datasets[dataset_name];
+         
 ############################################################################### 
 class Tablespace(object):
 
    def __init__(
        self
+      ,parent
       ,tablespace_name
       ,bytes_allocated
       ,bytes_used
       ,bytes_free
    ):
    
+      self._parent          = parent;
+      self._sqliteconn      = parent._sqliteconn;
       self._tablespace_name = tablespace_name;
       self._bytes_allocated = bytes_allocated;
       self._bytes_used      = bytes_used;
@@ -1092,12 +1293,23 @@ class Schema(object):
 
    def __init__(
        self
+      ,parent
       ,schema_name
       ,bytes_used
+      ,bytes_comp_none
+      ,bytes_comp_low
+      ,bytes_comp_high
+      ,bytes_comp_unk
    ):
    
-      self._schema_name = schema_name;
-      self._bytes_used  = bytes_used;
+      self._parent          = parent;
+      self._sqliteconn      = parent._sqliteconn;
+      self._schema_name     = schema_name;
+      self._bytes_used      = bytes_used;
+      self._bytes_comp_none = bytes_comp_none;
+      self._bytes_comp_low  = bytes_comp_low;
+      self._bytes_comp_high = bytes_comp_high;
+      self._bytes_comp_unk  = bytes_comp_unk;
       
    @property
    def schema_name(self):
@@ -1110,6 +1322,283 @@ class Schema(object):
    @property
    def gb_used(self):
       return self.bytes_used / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_none(self):
+      return self._bytes_comp_none;
+      
+   @property
+   def gb_comp_none(self):
+      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_low(self):
+      return self._bytes_comp_low;
+      
+   @property
+   def gb_comp_low(self):
+      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_high(self):
+      return self._bytes_comp_high;
+      
+   @property
+   def gb_comp_high(self):
+      return self.bytes_comp_high / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_unk(self):
+      return self._bytes_comp_unk;
+      
+   @property
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+      
+############################################################################### 
+class Dataset(object):
+
+   def __init__(
+       self
+      ,parent
+      ,dataset_name
+   ):
+   
+      self._parent          = parent;
+      self._sqliteconn      = parent._sqliteconn;
+      self._dataset_name    = dataset_name;
+      self._resources       = {};
+      
+   @property
+   def dataset_name(self):
+      return self._dataset_name;
+      
+   @property
+   def resources(self):
+      return self._resources;
+      
+   @property
+   def resources_l(self):
+      return [d for d in self.resources.values()];
+      
+   ############################################################################
+   def add_resource(
+       self
+      ,table_owner
+      ,table_name
+   ):
+   
+      if self._resources is None:
+         self._resources = {};
+         
+      self._resources[(table_owner,table_name)] = Resource(
+          parent       = self
+         ,table_owner  = table_owner
+         ,table_name = table_name
+      );
+      
+   ############################################################################
+   def delete_resource(
+       self
+      ,table_owner
+      ,table_name
+   ):
+   
+      if self._resources is None:
+         self._resources = {};
+
+      if (table_owner,table_name) in self._resources:
+         del self._resources[(table_owner,table_name)];
+      
+############################################################################### 
+class Resource(object):
+
+   def __init__(
+       self
+      ,parent
+      ,table_owner
+      ,table_name
+   ):
+   
+      self._parent          = parent;
+      self._sqliteconn      = parent._sqliteconn;
+      self._table_owner     = table_owner;
+      self._table_name      = table_name;
+      self._secondaries     = [];
+      
+      # Verify item is eligible resource item
+      curs = self._sqliteconn.cursor();
+   
+      str_sql = """
+         SELECT
+          a.partition_name
+         ,a.segment_type
+         ,a.tablespace_name
+         ,a.bytes_used
+         ,CASE WHEN a.compression = 'NONE' THEN a.bytes_used ELSE 0 END AS bytes_comp_none
+         ,CASE WHEN a.compression = 'LOW'  THEN a.bytes_used ELSE 0 END AS bytes_comp_low
+         ,CASE WHEN a.compression = 'HIGH' THEN a.bytes_used ELSE 0 END AS bytes_comp_high
+         ,CASE WHEN a.compression = 'UNK'  THEN a.bytes_used ELSE 0 END AS bytes_comp_unk
+         ,a.iot_type
+         FROM 
+         segments_compression a
+         WHERE
+             a.owner        = :p01
+         AND a.segment_name = :p02
+         AND a.secondary    = 'N'
+      """;
+      
+      curs.execute(
+          str_sql
+         ,{'p01':table_owner,'p02':table_name}
+      );
+      segment_type = None;
+      for row in curs:
+         partition_name  = row[0];
+         segment_type    = row[1];
+         tablespace_name = row[2];
+         bytes_used      = row[3];
+         bytes_comp_none = row[4];
+         bytes_comp_low  = row[5];
+         bytes_comp_high = row[6];
+         bytes_comp_unk  = row[7];
+         iot_type        = row[8];
+
+      # Abend hard if the item does have seconday = 'N'
+      if segment_type is None:
+         raise Exception(self.table_owner + '.' + self.table_name + ' is not a resource.');     
+      
+      self._secondaries.append(
+         Secondary(
+             parent          = self
+            ,depth           = 0
+            ,owner           = table_owner
+            ,segment_name    = table_name
+            ,partition_name  = partition_name
+            ,segment_type    = segment_type
+            ,tablespace_name = tablespace_name
+            ,bytes_used      = bytes_used
+            ,bytes_comp_none = bytes_comp_none
+            ,bytes_comp_low  = bytes_comp_low
+            ,bytes_comp_high = bytes_comp_high
+            ,bytes_comp_unk  = bytes_comp_unk
+         )
+      );
+            
+      curs.close();
+            
+   @property
+   def table_owner(self):
+      return self._table_owner;
+
+   @property
+   def table_name(self):
+      return self._table_name;
+      
+   @property
+   def secondaries(self):
+      return self._secondaries;
+      
+   @property
+   def secondary_count(self):
+      return len(self._secondaries);
+      
+############################################################################### 
+class Secondary(object):
+
+   def __init__(
+       self
+      ,parent
+      ,depth
+      ,owner
+      ,segment_name
+      ,partition_name  = None
+      ,segment_type    = None
+      ,tablespace_name = None
+      ,bytes_used      = None
+      ,bytes_comp_none = None
+      ,bytes_comp_low  = None
+      ,bytes_comp_high = None
+      ,bytes_comp_unk  = None
+   ):
+   
+      self._parent          = parent;
+      self._sqliteconn      = parent._sqliteconn;
+      self._owner           = owner;
+      self._depth           = depth;
+      self._segment_name    = segment_name;
+      self._partition_name  = partition_name;
+      self._segment_type    = segment_type;
+      self._tablespace_name = tablespace_name
+      self._bytes_used      = bytes_used;
+      self._bytes_comp_none = bytes_comp_none;
+      self._bytes_comp_low  = bytes_comp_low;
+      self._bytes_comp_high = bytes_comp_high;
+      self._bytes_comp_unk  = bytes_comp_unk;
+      
+   @property
+   def depth(self):
+      return self._depth;
+      
+   @property
+   def owner(self):
+      return self._owner;
+      
+   @property
+   def segment_name(self):
+      return self._segment_name;
+      
+   @property
+   def partition_name(self):
+      return self._partition_name;
+      
+   @property
+   def segment_type(self):
+      return self._segment_type;
+      
+   @property
+   def tablespace_name(self):
+      return self._tablespace_name;
+      
+   @property
+   def bytes_used(self):
+      return self._bytes_used;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_none(self):
+      return self._bytes_comp_none;
+      
+   @property
+   def gb_comp_none(self):
+      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_low(self):
+      return self._bytes_comp_low;
+      
+   @property
+   def gb_comp_low(self):
+      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_high(self):
+      return self._bytes_comp_high;
+   
+   @property
+   def gb_comp_high(self):
+      return self.bytes_comp_high / 1024 / 1024 / 1024;
+   
+   @property
+   def bytes_comp_unk(self):
+      return self._bytes_comp_unk;
+      
+   @property
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk / 1024 / 1024 / 1024;
            
 ############################################################################### 
 def slugify(value,allow_unicode=False):
