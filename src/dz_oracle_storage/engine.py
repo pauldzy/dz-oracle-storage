@@ -461,6 +461,7 @@ class Instance(object):
             ,partitioned
             ,iot_type
             ,secondary
+            ,isgeor
          )
          AS
          SELECT
@@ -534,12 +535,25 @@ class Instance(object):
             NULL
           END AS iot_type
          ,CASE
+          WHEN bbb.segment_type = 'TABLE' AND ggg.rdt_table_name IS NOT NULL
+          THEN
+            'Y'
           WHEN bbb.segment_type = 'TABLE'
           THEN
             ccc.secondary
           ELSE
             NULL
           END AS secondary
+         ,CASE 
+          WHEN fff.geor_table_name IS NOT NULL
+          THEN
+            'GEOR'
+          WHEN ggg.rdt_table_name IS NOT NULL
+          THEN
+            'RDT'
+          ELSE
+            NULL
+          END AS isgeor
          FROM
          dba_segments bbb
          LEFT JOIN
@@ -557,8 +571,25 @@ class Instance(object):
          ON
              bbb.owner          = eee.table_owner
          AND bbb.segment_name   = eee.table_name
-         AND bbb.partition_name = eee.partition_name;
-      
+         AND bbb.partition_name = eee.partition_name
+         LEFT JOIN (
+            SELECT
+             ffff.owner      AS geor_table_owner
+            ,ffff.table_name AS geor_table_name
+            FROM
+            all_sdo_geor_sysdata ffff
+            GROUP BY
+             ffff.owner
+            ,ffff.table_name
+         ) fff
+         ON
+             ccc.owner          = fff.geor_table_owner
+         AND ccc.table_name     = fff.geor_table_name
+         LEFT JOIN
+         all_sdo_geor_sysdata ggg
+         ON
+             ccc.owner          = ggg.owner
+         AND ccc.table_name     = ggg.rdt_table_name;    
       """);
       
    ############################################################################
@@ -1571,14 +1602,16 @@ class Schema(object):
       ,bytes_comp_unk
    ):
    
-      self._parent          = parent;
-      self._sqliteconn      = parent._sqliteconn;
-      self._schema_name     = schema_name;
-      self._bytes_used      = bytes_used;
-      self._bytes_comp_none = bytes_comp_none;
-      self._bytes_comp_low  = bytes_comp_low;
-      self._bytes_comp_high = bytes_comp_high;
-      self._bytes_comp_unk  = bytes_comp_unk;
+      self._parent             = parent;
+      self._sqliteconn         = parent._sqliteconn;
+      self._schema_name        = schema_name;
+      self._bytes_used         = bytes_used;
+      self._bytes_comp_none    = bytes_comp_none;
+      self._bytes_comp_low     = bytes_comp_low;
+      self._bytes_comp_high    = bytes_comp_high;
+      self._bytes_comp_unk     = bytes_comp_unk;
+      
+      self._ignore_tablespaces = {};
       
    @property
    def schema_name(self):
@@ -1623,6 +1656,127 @@ class Schema(object):
    @property
    def gb_comp_unk(self):
       return self.bytes_comp_unk / 1024 / 1024 / 1024;
+      
+   @property
+   def ignore_tablespaces(self):
+      return self._ignore_tablespaces;
+      
+   @property
+   def ignore_tablespaces_l(self):
+      return [d for d in self.ignore_tablespaces.values()];
+      
+   ############################################################################
+   def add_ignore_tablespace(
+       self
+      ,tablespace_name
+   ):
+   
+      if self._ignore_tablespaces is None:
+         self._ignore_tablespaces = {};
+         
+      self._ignore_tablespaces[tablespace_name] = tablespace_name;
+      self.resample_size();
+      
+   ############################################################################
+   def delete_ignore_tablespace(
+       self
+      ,tablespace_name
+   ):
+   
+      if self._ignore_tablespaces is None:
+         self._ignore_tablespaces = {};
+
+      if tablespace_name in self._ignore_tablespaces:
+         del self._ignore_tablespaces[tablespace_name];
+         self.resample_size();
+         
+   ############################################################################
+   def resample_size(
+      self
+   ):
+      curs = self._sqliteconn.cursor();
+      
+      if len(self.ignore_tablespaces_l) > 0:
+         str_sql = """
+            SELECT
+             a.username
+            ,b.bytes_used
+            ,b.bytes_comp_none
+            ,b.bytes_comp_low
+            ,b.bytes_comp_high
+            ,b.bytes_comp_unk
+            FROM 
+            dba_users a
+            LEFT JOIN (
+               SELECT
+                bb.owner
+               ,SUM(bb.bytes_used) AS bytes_used
+               ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
+               ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
+               ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
+               ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
+               FROM
+               segments_compression bb
+               WHERE
+               bb.tablespace_name NOT IN (""" + ",".join(f'\'{w}\'' for w in self.ignore_tablespaces_l) + """)
+               GROUP BY
+               bb.owner
+            ) b
+            ON
+            a.username = b.owner
+            WHERE
+            a.username = :p01
+         """;
+         
+      else:
+         str_sql = """
+            SELECT
+             a.username
+            ,b.bytes_used
+            ,b.bytes_comp_none
+            ,b.bytes_comp_low
+            ,b.bytes_comp_high
+            ,b.bytes_comp_unk
+            FROM 
+            dba_users a
+            LEFT JOIN (
+               SELECT
+                bb.owner
+               ,SUM(bb.bytes_used) AS bytes_used
+               ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
+               ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
+               ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
+               ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
+               FROM
+               segments_compression bb
+               GROUP BY
+               bb.owner
+            ) b
+            ON
+            a.username = b.owner
+            WHERE
+            a.username = :p01
+         """;
+         
+      curs.execute(
+          str_sql
+         ,{'p01':self._schema_name}    
+      );
+      for row in curs:
+         schema_name     = row[0];
+         bytes_used      = row[1];
+         bytes_comp_none = row[2];
+         bytes_comp_low  = row[3];
+         bytes_comp_high = row[4];
+         bytes_comp_unk  = row[5];
+      
+      self._bytes_used      = bytes_used
+      self._bytes_comp_none = bytes_comp_none
+      self._bytes_comp_low  = bytes_comp_low
+      self._bytes_comp_high = bytes_comp_high
+      self._bytes_comp_unk  = bytes_comp_unk
+            
+      curs.close();
       
 ############################################################################### 
 class ResourceGroup(object):
@@ -1721,6 +1875,7 @@ class Resource(object):
          ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
          ,a.partitioned
          ,a.iot_type
+         ,b.isgeor
          FROM 
          dba_tables a
          LEFT JOIN
@@ -1753,6 +1908,7 @@ class Resource(object):
          bytes_comp_unk  = row[9];
          partitioned     = row[10];
          iot_type        = row[11];
+         isgeor          = row[12];
 
       # Abend hard if the item does have seconday = 'N'
       if table_name is None:
@@ -1773,6 +1929,7 @@ class Resource(object):
          ,bytes_comp_unk  = bytes_comp_unk
          ,partitioned     = partitioned
          ,iot_type        = iot_type
+         ,isgeor          = isgeor
       );
             
       curs.close();
@@ -1870,6 +2027,7 @@ class Secondary(object):
       ,ityp_name       = None
       ,partitioned     = None
       ,iot_type        = None
+      ,isgeor          = None
    ):
    
       self._parent_resource = parent_resource;
@@ -1906,6 +2064,7 @@ class Secondary(object):
       self._ityp_name       = ityp_name;
       self._partitioned     = partitioned;
       self._iot_type        = iot_type;
+      self._isgeor          = isgeor;
       
       curs = parent_resource._sqliteconn.cursor();
       
@@ -2084,6 +2243,7 @@ class Secondary(object):
                ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
                ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
                ,a.iot_type
+               ,b.isgeor
                FROM
                dba_tables a
                LEFT JOIN
@@ -2115,6 +2275,7 @@ class Secondary(object):
                bytes_comp_high = row[8];
                bytes_comp_unk  = row[9];
                iot_type        = row[10];
+               isgeor          = row[11];
                
                if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                   parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
@@ -2131,6 +2292,7 @@ class Secondary(object):
                      ,bytes_comp_high = bytes_comp_high
                      ,bytes_comp_unk  = bytes_comp_unk
                      ,iot_type        = iot_type
+                     ,isgeor          = isgeor
                   );
 
          elif self._ityp_owner == 'MDSYS' and self._ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
@@ -2173,6 +2335,7 @@ class Secondary(object):
                ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
                ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
                ,a.iot_type
+               ,b.isgeor
                FROM
                dba_tables a
                LEFT JOIN
@@ -2207,6 +2370,7 @@ class Secondary(object):
                bytes_comp_high = row[8];
                bytes_comp_unk  = row[9];
                iot_type        = row[10];
+               isgeor          = row[11];
                
                if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                   parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
@@ -2223,6 +2387,7 @@ class Secondary(object):
                      ,bytes_comp_high = bytes_comp_high
                      ,bytes_comp_unk  = bytes_comp_unk
                      ,iot_type        = iot_type
+                     ,isgeor          = isgeor
                   );
 
          elif self._ityp_owner == 'SDE' and self._ityp_name == 'ST_SPATIAL_INDEX':
@@ -2263,6 +2428,7 @@ class Secondary(object):
                ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
                ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
                ,a.iot_type
+               ,b.isgeor
                FROM
                dba_tables a
                LEFT JOIN
@@ -2295,6 +2461,7 @@ class Secondary(object):
                bytes_comp_high = row[8];
                bytes_comp_unk  = row[9];
                iot_type        = row[10];
+               isgeor          = row[11];
                
                if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                   parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
@@ -2311,6 +2478,7 @@ class Secondary(object):
                      ,bytes_comp_high = bytes_comp_high
                      ,bytes_comp_unk  = bytes_comp_unk
                      ,iot_type        = iot_type
+                     ,isgeor          = isgeor
                   );
             
          else:
@@ -2382,6 +2550,72 @@ class Secondary(object):
                   ,bytes_comp_unk  = bytes_comp_unk
                );
  
+      #########################################################################
+      # Run down each raster RDT component
+      if self._isgeor == 'GEOR':
+         str_sql = """
+            SELECT
+             a.owner
+            ,a.rdt_table_name
+            ,b.partition_name
+            ,b.segment_type
+            ,b.tablespace_name
+            ,b.bytes_used
+            ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
+            ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
+            ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
+            ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+            ,b.isgeor
+            FROM
+            all_sdo_geor_sysdata a
+            LEFT JOIN
+            segments_compression b
+            ON
+                a.owner          = b.owner
+            AND a.rdt_table_name = b.segment_name
+            WHERE
+                a.owner          = :p01
+            AND a.table_name     = :p02
+         """;
+         
+         curs.execute(
+             str_sql
+            ,{
+                'p01':self._owner
+               ,'p02':self._segment_name
+             }
+         );
+         
+         for row in curs:
+            table_owner     = row[0];
+            table_name      = row[1];
+            partition_name  = row[2];
+            segment_type    = row[3];
+            tablespace_name = row[4];
+            bytes_used      = row[5];
+            bytes_comp_none = row[6];
+            bytes_comp_low  = row[7];
+            bytes_comp_high = row[8];
+            bytes_comp_unk  = row[9];
+            isgeor          = row[10];
+            
+            if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
+               parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+                   parent_resource = parent_resource
+                  ,depth           = depth + 1
+                  ,owner           = table_owner
+                  ,segment_name    = table_name
+                  ,partition_name  = partition_name
+                  ,segment_type    = segment_type
+                  ,tablespace_name = tablespace_name
+                  ,bytes_used      = bytes_used
+                  ,bytes_comp_none = bytes_comp_none
+                  ,bytes_comp_low  = bytes_comp_low
+                  ,bytes_comp_high = bytes_comp_high
+                  ,bytes_comp_unk  = bytes_comp_unk
+                  ,isgeor          = isgeor
+               );
+      
       curs.close();
       
    @property
