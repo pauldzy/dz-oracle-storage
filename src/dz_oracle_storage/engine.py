@@ -212,9 +212,9 @@ class Instance(object):
          
       except cx_Oracle.DatabaseError as e:
          sys.stderr.write("ERROR, unable to log into Oracle with \n");
-         sys.stderr.write("    username: " + str(p_username) + "\n");
+         sys.stderr.write("    username: " + str(self._username) + "\n");
          sys.stderr.write("    password: XXXXXXXX\n");
-         sys.stderr.write("  hoststring: " + str(p_hoststring) + "\n");
+         sys.stderr.write("  hoststring: " + str(self._hoststring) + "\n");
          sys.stderr.write("  oracle msg: " + str(e) + "\n");
          sys.exit(-1);
 
@@ -1237,11 +1237,41 @@ class Instance(object):
       str_sql = """
          SELECT
           a.username
-         ,b.bytes_used
-         ,b.bytes_comp_none
-         ,b.bytes_comp_low
-         ,b.bytes_comp_high
-         ,b.bytes_comp_unk
+         ,CASE
+          WHEN b.bytes_used IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_used
+          END AS bytes_used
+         ,CASE
+          WHEN b.bytes_comp_none IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_none
+          END AS bytes_comp_none
+         ,CASE
+          WHEN b.bytes_comp_low IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_low
+          END AS bytes_comp_low
+         ,CASE
+          WHEN b.bytes_comp_high IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_high
+          END AS bytes_comp_high
+         ,CASE
+          WHEN b.bytes_comp_unk IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_unk
+          END AS bytes_comp_unk
          FROM 
          dba_users a
          LEFT JOIN (
@@ -1544,11 +1574,41 @@ class Tablespace(object):
       str_sql = """
          SELECT
           a.tablespace_name
-         ,b.bytes_used
-         ,b.bytes_comp_none
-         ,b.bytes_comp_low
-         ,b.bytes_comp_high
-         ,b.bytes_comp_unk
+         ,CASE
+          WHEN b.bytes_used IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_used
+          END AS bytes_used
+         ,CASE
+          WHEN b.bytes_comp_none IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_none
+          END AS bytes_comp_none
+         ,CASE
+          WHEN b.bytes_comp_low IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_low
+          END AS bytes_comp_low
+         ,CASE
+          WHEN b.bytes_comp_high IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_high
+          END AS bytes_comp_high
+         ,CASE
+          WHEN b.bytes_comp_unk IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_unk
+          END AS bytes_comp_unk
          FROM 
          dba_tablespaces a
          LEFT JOIN (
@@ -1678,6 +1738,9 @@ class SchemaGroup(object):
       if self._schemas is None:
          self._schemas = {};
          
+      if schema_name not in self._parent.schemas:
+         raise Exception(schema_name + " not found in instance schemas.");
+      
       self._schemas[schema_name] = self._parent.schemas[schema_name];
       
    ############################################################################
@@ -1723,7 +1786,7 @@ class Schema(object):
       
    @property
    def bytes_used(self):
-      return self._bytes_used;
+      return float(self._bytes_used);
       
    @property
    def gb_used(self):
@@ -1731,7 +1794,7 @@ class Schema(object):
       
    @property
    def bytes_comp_none(self):
-      return self._bytes_comp_none;
+      return float(self._bytes_comp_none);
       
    @property
    def gb_comp_none(self):
@@ -1739,7 +1802,7 @@ class Schema(object):
       
    @property
    def bytes_comp_low(self):
-      return self._bytes_comp_low;
+      return float(self._bytes_comp_low);
       
    @property
    def gb_comp_low(self):
@@ -1747,7 +1810,7 @@ class Schema(object):
       
    @property
    def bytes_comp_high(self):
-      return self._bytes_comp_high;
+      return float(self._bytes_comp_high);
       
    @property
    def gb_comp_high(self):
@@ -1755,7 +1818,7 @@ class Schema(object):
       
    @property
    def bytes_comp_unk(self):
-      return self._bytes_comp_unk;
+      return float(self._bytes_comp_unk);
       
    @property
    def gb_comp_unk(self):
@@ -1804,11 +1867,41 @@ class Schema(object):
          str_sql = """
             SELECT
              a.username
-            ,b.bytes_used
-            ,b.bytes_comp_none
-            ,b.bytes_comp_low
-            ,b.bytes_comp_high
-            ,b.bytes_comp_unk
+            ,CASE
+             WHEN b.bytes_used IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_used
+             END AS bytes_used
+            ,CASE
+             WHEN b.bytes_comp_none IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_none
+             END AS bytes_comp_none
+            ,CASE
+             WHEN b.bytes_comp_low IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_low
+             END AS bytes_comp_low
+            ,CASE
+             WHEN b.bytes_comp_high IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_high
+             END AS bytes_comp_high
+            ,CASE
+             WHEN b.bytes_comp_unk IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_unk
+             END AS bytes_comp_unk
             FROM 
             dba_users a
             LEFT JOIN (
@@ -1836,11 +1929,41 @@ class Schema(object):
          str_sql = """
             SELECT
              a.username
-            ,b.bytes_used
-            ,b.bytes_comp_none
-            ,b.bytes_comp_low
-            ,b.bytes_comp_high
-            ,b.bytes_comp_unk
+            ,CASE
+             WHEN b.bytes_used IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_used
+             END AS bytes_used
+            ,CASE
+             WHEN b.bytes_comp_none IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_none
+             END AS bytes_comp_none
+            ,CASE
+             WHEN b.bytes_comp_low IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_low
+             END AS bytes_comp_low
+            ,CASE
+             WHEN b.bytes_comp_high IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_high
+             END AS bytes_comp_high
+            ,CASE
+             WHEN b.bytes_comp_unk IS NULL
+             THEN
+               0
+             ELSE
+               b.bytes_comp_unk
+             END AS bytes_comp_unk
             FROM 
             dba_users a
             LEFT JOIN (
@@ -1907,6 +2030,61 @@ class ResourceGroup(object):
    @property
    def resources_l(self):
       return [d for d in self.resources.values()];
+      
+   @property
+   def bytes_used(self):
+      rez = 0;
+      for item in self.resources.values():
+         rez += item.bytes_used;
+      return rez;
+      
+   @property
+   def gb_used(self):
+      return self.bytes_used / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_none(self):
+      rez = 0;
+      for item in self.resources.values():
+         rez += item.bytes_comp_none;
+      return rez;
+      
+   @property
+   def gb_comp_none(self):
+      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_low(self):
+      rez = 0;
+      for item in self.resources.values():
+         rez += item.bytes_comp_low;
+      return rez;
+      
+   @property
+   def gb_comp_low(self):
+      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_high(self):
+      rez = 0;
+      for item in self.resources.values():
+         rez += item.bytes_comp_high;
+      return rez;
+      
+   @property
+   def gb_comp_high(self):
+      return self.bytes_comp_high / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_unk(self):
+      rez = 0;
+      for item in self.resources.values():
+         rez += item.bytes_comp_unk;
+      return rez;
+      
+   @property
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk / 1024 / 1024 / 1024;
       
    ############################################################################
    def add_resource(
