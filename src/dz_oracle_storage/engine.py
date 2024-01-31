@@ -154,6 +154,10 @@ class Instance(object):
    @property
    def tablespaces_l(self):
       return [d for d in self.tablespaces.values()];
+   
+   @property
+   def tablespaces_keys(self):
+      return [d for d in self.tablespaces.keys()];
       
    @property
    def tablespace_groups(self): 
@@ -1457,6 +1461,11 @@ class Tablespace(object):
       self._bytes_used      = bytes_used;
       self._bytes_free      = bytes_free;
       
+      self._bytes_comp_none = None;
+      self._bytes_comp_low  = None;
+      self._bytes_comp_high = None;
+      self._bytes_comp_unk  = None;
+      
    @property
    def tablespace_name(self):
       return self._tablespace_name;
@@ -1484,6 +1493,101 @@ class Tablespace(object):
    @property
    def gb_free(self):
       return self.bytes_free / 1024 / 1024 / 1024;
+      
+   
+   @property
+   def bytes_comp_none(self):
+      if self._bytes_comp_none is None:
+         self.get_segment_size();
+      return self._bytes_comp_none;
+      
+   @property
+   def gb_comp_none(self):
+      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_low(self):
+      if self._bytes_comp_low is None:
+         self.get_segment_size();
+      return self._bytes_comp_low;
+      
+   @property
+   def gb_comp_low(self):
+      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_high(self):
+      if self._bytes_comp_high is None:
+         self.get_segment_size();
+      return self._bytes_comp_high;
+      
+   @property
+   def gb_comp_high(self):
+      return self.bytes_comp_high / 1024 / 1024 / 1024;
+      
+   @property
+   def bytes_comp_unk(self):
+      if self._bytes_comp_unk is None:
+         self.get_segment_size();
+      return self._bytes_comp_unk;
+      
+   @property
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+      
+   ############################################################################
+   def get_segment_size(
+      self
+   ):
+      curs = self._sqliteconn.cursor();
+      
+      str_sql = """
+         SELECT
+          a.tablespace_name
+         ,b.bytes_used
+         ,b.bytes_comp_none
+         ,b.bytes_comp_low
+         ,b.bytes_comp_high
+         ,b.bytes_comp_unk
+         FROM 
+         dba_tablespaces a
+         LEFT JOIN (
+            SELECT
+             bb.tablespace_name
+            ,SUM(bb.bytes_used) AS bytes_used
+            ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
+            ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
+            ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
+            ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
+            FROM
+            segments_compression bb
+            GROUP BY
+            bb.tablespace_name
+         ) b
+         ON
+         a.tablespace_name = b.tablespace_name
+         WHERE
+         a.tablespace_name = :p01
+      """;
+         
+      curs.execute(
+          str_sql
+         ,{'p01':self._tablespace_name}    
+      );
+      for row in curs:
+         tablespace_name = row[0];
+         bytes_used      = row[1];
+         bytes_comp_none = row[2];
+         bytes_comp_low  = row[3];
+         bytes_comp_high = row[4];
+         bytes_comp_unk  = row[5];
+      
+      self._bytes_comp_none = bytes_comp_none
+      self._bytes_comp_low  = bytes_comp_low
+      self._bytes_comp_high = bytes_comp_high
+      self._bytes_comp_unk  = bytes_comp_unk
+            
+      curs.close();
      
 ############################################################################### 
 class SchemaGroup(object):
