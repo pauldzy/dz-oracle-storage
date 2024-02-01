@@ -1,7 +1,7 @@
-import os,sys;
+import os,sys,inspect;
 import sqlite3,cx_Oracle;
 from datetime import datetime;
-import unicodedata,re;
+from .util import slugify;
 
 class Instance(object):
 
@@ -13,31 +13,53 @@ class Instance(object):
       ,username
       ,password
       ,hoststring
-      ,use_flashback = False
+      ,sqlite_location = None
+      ,use_flashback   = False
+      ,use_existing_db = False
    ):
    
-      self._name          = name;
-      self._username      = username;
-      self._password      = password;
-      self._hoststring    = hoststring;
-      self._use_flashback = use_flashback;
+      self._name            = name;
+      self._username        = username;
+      self._password        = password;
+      self._hoststring      = hoststring;
+      self._sqlite_location = sqlite_location;
+      self._use_flashback   = use_flashback;
+      self._use_existing_db = use_existing_db
       
-      self._dts           = None;
-      self._dts_s         = None;
+      self._dts             = None;
+      self._dts_s           = None;
       
-      self._orcl          = None;
-      self._has_spatial   = None;
-      self._has_text      = None;
-      self._has_sde       = None;      
-      self.initorcl();
-      
-      self._sqlitepath  = os.path.dirname(os.path.abspath(__file__)) + os.sep + slugify(name) + '.db';
-      self._sqliteconn  = None;
-      
-      self.deletesqlite();
-      self.initsqlite();
-      
-      self.loadorcl();
+      self._orcl            = None;
+      self._has_spatial     = None;
+      self._has_text        = None;
+      self._has_sde         = None;      
+
+      dbfile = slugify(name) + '.db';
+      if self._sqlite_location is not None:
+         if not os.path.exists(self._sqlite_location):
+            raise Exception('sqlite_location not found.');
+         
+         self._sqlitepath = self._sqlite_location + os.sep + dbfile;
+
+      else:
+         self._sqlitepath  = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0))) + os.sep + dbfile;
+         
+      if self._use_existing_db and os.path.exists(self._sqlitepath):
+         print("== using preexisting information per use_existing_db flag for instance " + self._name + ". ==",file=sys.stderr);
+         print("== this flag is only intended for debugging purposes. ==",file=sys.stderr);
+         print("",file=sys.stderr);
+         self._sqliteconn = sqlite3.connect(self._sqlitepath);
+         
+      else:
+         if self._use_existing_db and not os.path.exists(self._sqlitepath):
+            print("== no preexisting information per use_existing_db flag found for instance " + self._name + ". ==",file=sys.stderr);
+            print("== will extract and load fresh information from oracle. ==",file=sys.stderr);
+            print("== this flag is only intended for debugging purposes. ==",file=sys.stderr);
+         
+         self.initorcl();
+         self.deletesqlite();
+         self.initsqlite();     
+         self.loadorcl();
       
       self._bytes_allocated   = None;
       self._bytes_used        = None;
@@ -2963,21 +2985,3 @@ class Secondary(object):
    @property
    def gb_comp_unk(self):
       return self.bytes_comp_unk / 1024 / 1024 / 1024;
-           
-############################################################################### 
-def slugify(value,allow_unicode=False):
-   """
-   Taken from https://github.com/django/django/blob/master/django/utils/text.py
-   Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
-   dashes to single dashes. Remove characters that aren't alphanumerics,
-   underscores, or hyphens. Convert to lowercase. Also strip leading and
-   trailing whitespace, dashes, and underscores.
-   """
-   value = str(value);
-   if allow_unicode:
-      value = unicodedata.normalize('NFKC',value);
-   else:
-      value = unicodedata.normalize('NFKD',value).encode('ascii','ignore').decode('ascii');
-   value = re.sub(r'[^\w\s-]', '', value.lower());
-   return re.sub(r'[-\s]+', '-', value).strip('-_');
-   
