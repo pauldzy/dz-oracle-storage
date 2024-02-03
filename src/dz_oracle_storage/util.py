@@ -17,6 +17,16 @@ def slugify(value,allow_unicode=False):
       value = unicodedata.normalize('NFKD',value).encode('ascii','ignore').decode('ascii');
    value = re.sub(r'[^\w\s-]', '', value.lower());
    return re.sub(r'[-\s]+', '-', value).strip('-_');
+
+############################################################################### 
+def dzx(pin):
+   
+   if pin is None or len(pin) == 0:
+      return None;
+   if isinstance(pin,str):
+      return pin;
+   else:
+      return ",".join(f'\'{w}\'' for w in sorted(set(pin)));
    
 ############################################################################### 
 def get_env_data(path: str) -> dict:

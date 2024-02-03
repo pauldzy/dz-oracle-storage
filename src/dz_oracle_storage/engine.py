@@ -1,7 +1,7 @@
 import os,sys,inspect;
 import sqlite3,cx_Oracle;
 from datetime import datetime;
-from .util import slugify;
+from .util import slugify,dzx;
 
 class Instance(object):
 
@@ -137,35 +137,35 @@ class Instance(object):
    def hoststring(self,value):
       self._hoststring = value;
    
-   @property
+   ####
    def bytes_allocated(self):
       if self._bytes_allocated is None:
          self.loadinstancetotals();
       return self._bytes_allocated;
       
-   @property
+   ####
    def gb_allocated(self):
-      return self.bytes_allocated / 1024 / 1024 / 1024;
+      return self.bytes_allocated() / 1024 / 1024 / 1024;
    
-   @property
+   ####
    def bytes_used(self):
       if self._bytes_used is None:
          self.loadinstancetotals();
       return self._bytes_used;
       
-   @property
+   ####
    def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+      return self.bytes_used() / 1024 / 1024 / 1024;
 
-   @property
+   ####
    def bytes_free(self):
       if self._bytes_free is None:
          self.loadinstancetotals();
       return self._bytes_free;
    
-   @property
+   ####
    def gb_free(self):
-      return self.bytes_free / 1024 / 1024 / 1024;
+      return self.bytes_free() / 1024 / 1024 / 1024;
       
    @property
    def tablespaces(self): 
@@ -1365,6 +1365,7 @@ class Instance(object):
    def add_schema_group(
        self
       ,schema_group_name
+      ,ignore_tablespaces = None
    ):
    
       if self._schema_groups is None:
@@ -1374,6 +1375,11 @@ class Instance(object):
           parent              = self
          ,schema_group_name   = schema_group_name
       );
+      
+      if ignore_tablespaces is not None:
+         self._schema_groups[schema_group_name].set_ignore_tablespaces(
+            tablespace_names = ignore_tablespaces
+         );
       
    ############################################################################
    def delete_schema_group(
@@ -1438,38 +1444,82 @@ class TablespaceGroup(object):
    def tablespaces_l(self):
       return [d for d in self.tablespaces.values()];
 
-   @property
+   ####
    def bytes_allocated(self):
       rez = 0;
       for item in self.tablespaces.values():
-         rez += item.bytes_allocated;
+         rez += item.bytes_allocated();
       return rez;
       
-   @property
+   ####
    def gb_allocated(self):
-      return self.bytes_allocated / 1024 / 1024 / 1024;
+      return self.bytes_allocated() / 1024 / 1024 / 1024;
    
-   @property
+   ####
    def bytes_used(self):
       rez = 0;
       for item in self.tablespaces.values():
-         rez += item.bytes_used;
+         rez += item.bytes_used();
       return rez;
       
-   @property
+   ####
    def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+      return self.bytes_used() / 1024 / 1024 / 1024;
 
-   @property
+   ####
    def bytes_free(self):
       rez = 0;
       for item in self.tablespaces.values():
-         rez += item.bytes_free;
+         rez += item.bytes_free();
       return rez;
    
-   @property
+   ####
    def gb_free(self):
-      return self.bytes_free / 1024 / 1024 / 1024;
+      return self.bytes_free() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_none(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_comp_none();
+      return rez;
+      
+   ####
+   def gb_comp_none(self):
+      return self.bytes_comp_none() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_low(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_comp_low();
+      return rez;
+      
+   ####
+   def gb_comp_low(self):
+      return self.bytes_comp_low() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_high(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_comp_high();
+      return rez;
+      
+   ####
+   def gb_comp_high(self):
+      return self.bytes_comp_high() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_unk(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_comp_unk();
+      return rez;
+      
+   ####
+   def gb_comp_unk(self):
+      return self.bytes_comp_unk() / 1024 / 1024 / 1024;
       
    ############################################################################
    def add_tablespace(
@@ -1522,70 +1572,69 @@ class Tablespace(object):
    def tablespace_name(self):
       return self._tablespace_name;
       
-   @property
+   ####
    def bytes_allocated(self):
       return self._bytes_allocated;
       
-   @property
+   ####
    def gb_allocated(self):
-      return self.bytes_allocated / 1024 / 1024 / 1024;
+      return self.bytes_allocated() / 1024 / 1024 / 1024;
    
-   @property
+   ####
    def bytes_used(self):
       return self._bytes_used;
       
-   @property
+   ####
    def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+      return self.bytes_used() / 1024 / 1024 / 1024;
 
-   @property
+   ####
    def bytes_free(self):
       return self._bytes_free;
    
-   @property
+   ####
    def gb_free(self):
-      return self.bytes_free / 1024 / 1024 / 1024;
+      return self.bytes_free() / 1024 / 1024 / 1024;
       
-   
-   @property
+   ####
    def bytes_comp_none(self):
       if self._bytes_comp_none is None:
          self.get_segment_size();
       return self._bytes_comp_none;
       
-   @property
+   ####
    def gb_comp_none(self):
-      return self.bytes_comp_none / 1024 / 1024 / 1024;
+      return self.bytes_comp_none() / 1024 / 1024 / 1024;
       
-   @property
+   ####
    def bytes_comp_low(self):
       if self._bytes_comp_low is None:
          self.get_segment_size();
       return self._bytes_comp_low;
       
-   @property
+   ####
    def gb_comp_low(self):
-      return self.bytes_comp_low / 1024 / 1024 / 1024;
+      return self.bytes_comp_low() / 1024 / 1024 / 1024;
       
-   @property
+   ####
    def bytes_comp_high(self):
       if self._bytes_comp_high is None:
          self.get_segment_size();
       return self._bytes_comp_high;
       
-   @property
+   ####
    def gb_comp_high(self):
-      return self.bytes_comp_high / 1024 / 1024 / 1024;
+      return self.bytes_comp_high() / 1024 / 1024 / 1024;
       
-   @property
+   ####
    def bytes_comp_unk(self):
       if self._bytes_comp_unk is None:
          self.get_segment_size();
       return self._bytes_comp_unk;
       
-   @property
+   ####
    def gb_comp_unk(self):
-      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+      return self.bytes_comp_unk() / 1024 / 1024 / 1024;
       
    ############################################################################
    def get_segment_size(
@@ -1683,6 +1732,7 @@ class SchemaGroup(object):
       self._parent              = parent
       self._schema_group_name   = schema_group_name;
       self._schemas             = {};
+      self._ignore_tbs          = None;
       
    @property
    def schema_group_name(self):
@@ -1696,60 +1746,105 @@ class SchemaGroup(object):
    def schemas_l(self):
       return [d for d in self.schemas.values()];
       
-   @property
-   def bytes_used(self):
+   ####
+   def bytes_used(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.schemas.values():
-         rez += item.bytes_used;
+         rez += item.bytes_used(igtbs=igtbs);
       return rez;
       
-   @property
-   def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+   ####
+   def gb_used(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_used(igtbs=igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_none(self):
+   ####
+   def bytes_comp_none(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.schemas.values():
-         rez += item.bytes_comp_none;
+         rez += item.bytes_comp_none(igtbs=igtbs);
       return rez;
       
-   @property
-   def gb_comp_none(self):
-      return self.bytes_comp_none / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_none(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_none(igtbs=igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_low(self):
+   ####
+   def bytes_comp_low(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.schemas.values():
-         rez += item.bytes_comp_low;
+         rez += item.bytes_comp_low(igtbs=igtbs);
       return rez;
       
-   @property
-   def gb_comp_low(self):
-      return self.bytes_comp_low / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_low(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_low(igtbs=igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_high(self):
+   ####
+   def bytes_comp_high(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.schemas.values():
-         rez += item.bytes_comp_high;
+         rez += item.bytes_comp_high(igtbs=igtbs);
       return rez;
       
-   @property
-   def gb_comp_high(self):
-      return self.bytes_comp_high / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_high(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_high(igtbs=igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_unk(self):
+   ####
+   def bytes_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.schemas.values():
-         rez += item.bytes_comp_unk;
+         rez += item.bytes_comp_unk(igtbs=igtbs);
       return rez;
       
-   @property
-   def gb_comp_unk(self):
-      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_unk(igtbs=igtbs) / 1024 / 1024 / 1024;
       
    ############################################################################
    def add_schema(
@@ -1776,6 +1871,21 @@ class SchemaGroup(object):
 
       if schema_name in self._schemas:
          del self._schemas[schema_name];
+         
+   ############################################################################
+   def set_ignore_tablespaces(
+       self
+      ,tablespace_names
+   ):
+   
+      self._ignore_tbs = dzx(tablespace_names);
+  
+   ############################################################################
+   def delete_ignore_tablespaces(
+       self
+   ):
+   
+      del self._ignore_tbs;
       
 ############################################################################### 
 class Schema(object):
@@ -1799,214 +1909,193 @@ class Schema(object):
       self._bytes_comp_low     = bytes_comp_low;
       self._bytes_comp_high    = bytes_comp_high;
       self._bytes_comp_unk     = bytes_comp_unk;
-      
-      self._ignore_tablespaces = {};
+      self._ignore_tbs_results = {};
       
    @property
    def schema_name(self):
       return self._schema_name;
       
-   @property
-   def bytes_used(self):
-      return float(self._bytes_used);
-      
-   @property
-   def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
-      
-   @property
-   def bytes_comp_none(self):
-      return float(self._bytes_comp_none);
-      
-   @property
-   def gb_comp_none(self):
-      return self.bytes_comp_none / 1024 / 1024 / 1024;
-      
-   @property
-   def bytes_comp_low(self):
-      return float(self._bytes_comp_low);
-      
-   @property
-   def gb_comp_low(self):
-      return self.bytes_comp_low / 1024 / 1024 / 1024;
-      
-   @property
-   def bytes_comp_high(self):
-      return float(self._bytes_comp_high);
-      
-   @property
-   def gb_comp_high(self):
-      return self.bytes_comp_high / 1024 / 1024 / 1024;
-      
-   @property
-   def bytes_comp_unk(self):
-      return float(self._bytes_comp_unk);
-      
-   @property
-   def gb_comp_unk(self):
-      return self.bytes_comp_unk / 1024 / 1024 / 1024;
-      
-   @property
-   def ignore_tablespaces(self):
-      return self._ignore_tablespaces;
-      
-   @property
-   def ignore_tablespaces_l(self):
-      return [d for d in self.ignore_tablespaces.values()];
-      
-   ############################################################################
-   def add_ignore_tablespace(
+   ####
+   def bytes_used(
        self
-      ,tablespace_name
+      ,igtbs = None
    ):
-   
-      if self._ignore_tablespaces is None:
-         self._ignore_tablespaces = {};
-         
-      self._ignore_tablespaces[tablespace_name] = tablespace_name;
-      self.resample_size();
-      
-   ############################################################################
-   def delete_ignore_tablespace(
-       self
-      ,tablespace_name
-   ):
-   
-      if self._ignore_tablespaces is None:
-         self._ignore_tablespaces = {};
+      if dzx(igtbs) is not None:
+         if dzx(igtbs) not in self._ignore_tbs_results:
+            self.reharvest_with_ignore(dzx(igtbs));
 
-      if tablespace_name in self._ignore_tablespaces:
-         del self._ignore_tablespaces[tablespace_name];
-         self.resample_size();
+         return float(
+            self._ignore_tbs_results[dzx(igtbs)]['bytes_used']
+         );
          
-   ############################################################################
-   def resample_size(
-      self
+      return self._bytes_used;
+      
+   ####
+   def gb_used(
+       self
+      ,igtbs = None
    ):
+      return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_none(
+       self
+      ,igtbs = None
+   ):
+      if dzx(igtbs) is not None:
+         if dzx(igtbs) not in self._ignore_tbs_results:
+            self.reharvest_with_ignore(dzx(igtbs));
+
+         return float(
+            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_none']
+         );
+         
+      return self._bytes_comp_none;
+      
+   ####
+   def gb_comp_none(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_low(
+       self
+      ,igtbs = None
+   ):
+      if dzx(igtbs) is not None:
+         if dzx(igtbs) not in self._ignore_tbs_results:
+            self.reharvest_with_ignore(dzx(igtbs));
+
+         return float(
+            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_low']
+         );
+         
+      return self._bytes_comp_low;
+      
+   ####
+   def gb_comp_low(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_high(
+       self
+      ,igtbs = None
+   ):
+      if dzx(igtbs) is not None:
+         if dzx(igtbs) not in self._ignore_tbs_results:
+            self.reharvest_with_ignore(dzx(igtbs));
+
+         return float(
+            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_high']
+         );
+         
+      return self._bytes_comp_high;
+      
+   ####
+   def gb_comp_high(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      if dzx(igtbs) is not None:
+         if dzx(igtbs) not in self._ignore_tbs_results:
+            self.reharvest_with_ignore(dzx(igtbs));
+
+         return float(
+            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_unk']
+         );
+         
+      return self._bytes_comp_unk;
+      
+   ####
+   def gb_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
+     
+   ############################################################################
+   def reharvest_with_ignore(
+       self
+      ,igtbs_s
+   ):
+      if igtbs_s is None or igtbs_s in self._ignore_tbs_results:
+         return;
+ 
       curs = self._sqliteconn.cursor();
       
-      if len(self.ignore_tablespaces_l) > 0:
-         str_sql = """
+      str_sql = """
+         SELECT
+          a.username
+         ,CASE
+          WHEN b.bytes_used IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_used
+          END AS bytes_used
+         ,CASE
+          WHEN b.bytes_comp_none IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_none
+          END AS bytes_comp_none
+         ,CASE
+          WHEN b.bytes_comp_low IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_low
+          END AS bytes_comp_low
+         ,CASE
+          WHEN b.bytes_comp_high IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_high
+          END AS bytes_comp_high
+         ,CASE
+          WHEN b.bytes_comp_unk IS NULL
+          THEN
+            0
+          ELSE
+            b.bytes_comp_unk
+          END AS bytes_comp_unk
+         FROM 
+         dba_users a
+         LEFT JOIN (
             SELECT
-             a.username
-            ,CASE
-             WHEN b.bytes_used IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_used
-             END AS bytes_used
-            ,CASE
-             WHEN b.bytes_comp_none IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_none
-             END AS bytes_comp_none
-            ,CASE
-             WHEN b.bytes_comp_low IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_low
-             END AS bytes_comp_low
-            ,CASE
-             WHEN b.bytes_comp_high IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_high
-             END AS bytes_comp_high
-            ,CASE
-             WHEN b.bytes_comp_unk IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_unk
-             END AS bytes_comp_unk
-            FROM 
-            dba_users a
-            LEFT JOIN (
-               SELECT
-                bb.owner
-               ,SUM(bb.bytes_used) AS bytes_used
-               ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
-               ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
-               ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
-               ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
-               FROM
-               segments_compression bb
-               WHERE
-               bb.tablespace_name NOT IN (""" + ",".join(f'\'{w}\'' for w in self.ignore_tablespaces_l) + """)
-               GROUP BY
-               bb.owner
-            ) b
-            ON
-            a.username = b.owner
+             bb.owner
+            ,SUM(bb.bytes_used) AS bytes_used
+            ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
+            ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
+            ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
+            ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
+            FROM
+            segments_compression bb
             WHERE
-            a.username = :p01
-         """;
-         
-      else:
-         str_sql = """
-            SELECT
-             a.username
-            ,CASE
-             WHEN b.bytes_used IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_used
-             END AS bytes_used
-            ,CASE
-             WHEN b.bytes_comp_none IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_none
-             END AS bytes_comp_none
-            ,CASE
-             WHEN b.bytes_comp_low IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_low
-             END AS bytes_comp_low
-            ,CASE
-             WHEN b.bytes_comp_high IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_high
-             END AS bytes_comp_high
-            ,CASE
-             WHEN b.bytes_comp_unk IS NULL
-             THEN
-               0
-             ELSE
-               b.bytes_comp_unk
-             END AS bytes_comp_unk
-            FROM 
-            dba_users a
-            LEFT JOIN (
-               SELECT
-                bb.owner
-               ,SUM(bb.bytes_used) AS bytes_used
-               ,SUM(CASE WHEN bb.compression = 'NONE' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_none
-               ,SUM(CASE WHEN bb.compression = 'LOW'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_low
-               ,SUM(CASE WHEN bb.compression = 'HIGH' THEN bb.bytes_used ELSE 0 END) AS bytes_comp_high
-               ,SUM(CASE WHEN bb.compression = 'UNK'  THEN bb.bytes_used ELSE 0 END) AS bytes_comp_unk
-               FROM
-               segments_compression bb
-               GROUP BY
-               bb.owner
-            ) b
-            ON
-            a.username = b.owner
-            WHERE
-            a.username = :p01
-         """;
-         
+            bb.tablespace_name NOT IN (""" + igtbs_s + """)
+            GROUP BY
+            bb.owner
+         ) b
+         ON
+         a.username = b.owner
+         WHERE
+         a.username = :p01
+      """;
+  
       curs.execute(
           str_sql
          ,{'p01':self._schema_name}    
@@ -2017,15 +2106,17 @@ class Schema(object):
          bytes_comp_none = row[2];
          bytes_comp_low  = row[3];
          bytes_comp_high = row[4];
-         bytes_comp_unk  = row[5];
+         bytes_comp_unk  = row[5];            
       
-      self._bytes_used      = bytes_used
-      self._bytes_comp_none = bytes_comp_none
-      self._bytes_comp_low  = bytes_comp_low
-      self._bytes_comp_high = bytes_comp_high
-      self._bytes_comp_unk  = bytes_comp_unk
-            
       curs.close();
+      
+      self._ignore_tbs_results[igtbs_s] = {
+          "bytes_used":      bytes_used
+         ,"bytes_comp_none": bytes_comp_none
+         ,"bytes_comp_low":  bytes_comp_low
+         ,"bytes_comp_high": bytes_comp_high
+         ,"bytes_comp_unk":  bytes_comp_unk
+      }
       
 ############################################################################### 
 class ResourceGroup(object):
@@ -2040,6 +2131,7 @@ class ResourceGroup(object):
       self._sqliteconn          = parent._sqliteconn;
       self._resource_group_name = resource_group_name;
       self._resources           = {};
+      self._ignore_tbs          = None;
       
    @property
    def dataset_name(self):
@@ -2053,60 +2145,105 @@ class ResourceGroup(object):
    def resources_l(self):
       return [d for d in self.resources.values()];
       
-   @property
-   def bytes_used(self):
+   ####
+   def bytes_used(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.resources.values():
-         rez += item.bytes_used;
+         rez += item.bytes_used(igtbs);
       return rez;
       
-   @property
-   def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+   ####
+   def gb_used(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_none(self):
+   ####
+   def bytes_comp_none(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.resources.values():
-         rez += item.bytes_comp_none;
+         rez += item.bytes_comp_none(igtbs);
       return rez;
       
-   @property
-   def gb_comp_none(self):
-      return self.bytes_comp_none / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_none(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_low(self):
+   ####
+   def bytes_comp_low(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.resources.values():
-         rez += item.bytes_comp_low;
+         rez += item.bytes_comp_low(igtbs);
       return rez;
       
-   @property
-   def gb_comp_low(self):
-      return self.bytes_comp_low / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_low(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_high(self):
+   ####
+   def bytes_comp_high(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.resources.values():
-         rez += item.bytes_comp_high;
+         rez += item.bytes_comp_high(igtbs);
       return rez;
       
-   @property
-   def gb_comp_high(self):
-      return self.bytes_comp_high / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_high(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_unk(self):
+   ####
+   def bytes_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      if igtbs is None and self._ignore_tbs is not None:
+         igtbs = self._ignore_tbs;
+         
       rez = 0;
       for item in self.resources.values():
-         rez += item.bytes_comp_unk;
+         rez += item.bytes_comp_unk(igtbs);
       return rez;
       
-   @property
-   def gb_comp_unk(self):
-      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
       
    ############################################################################
    def add_resource(
@@ -2136,6 +2273,21 @@ class ResourceGroup(object):
 
       if (table_owner,table_name) in self._resources:
          del self._resources[(table_owner,table_name)];
+         
+   ############################################################################
+   def set_ignore_tablespaces(
+       self
+      ,tablespace_names
+   ):
+   
+      self._ignore_tbs = dzx(tablespace_name);
+  
+   ############################################################################
+   def delete_ignore_tablespaces(
+       self
+   ):
+   
+      del self._ignore_tbs;
       
 ############################################################################### 
 class Resource(object):
@@ -2254,60 +2406,90 @@ class Resource(object):
    def secondaries_l(self):
       return [d for d in self.secondaries.values()];
       
-   @property
-   def bytes_used(self):
+   ####
+   def bytes_used(
+       self
+      ,igtbs = None
+   ):
       rez = 0;
       for item in self.secondaries.values():
-         rez += item.bytes_used;
+         rez += item.bytes_used(igtbs);
       return rez;
       
-   @property
-   def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+   ####
+   def gb_used(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_none(self):
+   ####
+   def bytes_comp_none(
+       self
+      ,igtbs = None
+   ):
       rez = 0;
       for item in self.secondaries.values():
-         rez += item.bytes_comp_none;
+         rez += item.bytes_comp_none(igtbs);
       return rez;
       
-   @property
-   def gb_comp_none(self):
-      return self.bytes_comp_none / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_none(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_low(self):
+   ####
+   def bytes_comp_low(
+       self
+      ,igtbs = None
+   ):
       rez = 0;
       for item in self.secondaries.values():
-         rez += item.bytes_comp_low;
+         rez += item.bytes_comp_low(igtbs);
       return rez;
       
-   @property
-   def gb_comp_low(self):
-      return self.bytes_comp_low / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_low(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_high(self):
+   ####
+   def bytes_comp_high(
+       self
+      ,igtbs = None
+   ):
       rez = 0;
       for item in self.secondaries.values():
-         rez += item.bytes_comp_high;
+         rez += item.bytes_comp_high(igtbs);
       return rez;
    
-   @property
-   def gb_comp_high(self):
-      return self.bytes_comp_high / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_high(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
    
-   @property
-   def bytes_comp_unk(self):
+   ####
+   def bytes_comp_unk(
+       self
+      ,igtbs = None
+   ):
       rez = 0;
       for item in self.secondaries.values():
-         rez += item.bytes_comp_unk;
+         rez += item.bytes_comp_unk(igtbs);
       return rez;
       
-   @property
-   def gb_comp_unk(self):
-      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
       
 ############################################################################### 
 class Secondary(object):
@@ -2946,42 +3128,72 @@ class Secondary(object):
    def tablespace_name(self):
       return self._tablespace_name;
       
-   @property
-   def bytes_used(self):
+   ####
+   def bytes_used(
+       self
+      ,igtbs = None
+   ):
       return self._bytes_used;
       
-   @property
-   def gb_used(self):
-      return self.bytes_used / 1024 / 1024 / 1024;
+   ####
+   def gb_used(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_none(self):
+   ####
+   def bytes_comp_none(
+       self
+      ,igtbs = None
+   ):
       return self._bytes_comp_none;
       
-   @property
-   def gb_comp_none(self):
-      return self.bytes_comp_none / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_none(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_low(self):
+   ####
+   def bytes_comp_low(
+       self
+      ,igtbs = None
+   ):
       return self._bytes_comp_low;
       
-   @property
-   def gb_comp_low(self):
-      return self.bytes_comp_low / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_low(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
       
-   @property
-   def bytes_comp_high(self):
+   ####
+   def bytes_comp_high(
+       self
+      ,igtbs = None
+   ):
       return self._bytes_comp_high;
    
-   @property
-   def gb_comp_high(self):
-      return self.bytes_comp_high / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_high(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
    
-   @property
-   def bytes_comp_unk(self):
+   ####
+   def bytes_comp_unk(
+       self
+      ,igtbs = None
+   ):
       return self._bytes_comp_unk;
       
-   @property
-   def gb_comp_unk(self):
-      return self.bytes_comp_unk / 1024 / 1024 / 1024;
+   ####
+   def gb_comp_unk(
+       self
+      ,igtbs = None
+   ):
+      return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
