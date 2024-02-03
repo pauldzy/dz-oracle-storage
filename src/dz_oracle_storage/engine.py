@@ -352,12 +352,18 @@ class Instance(object):
             ,bytes           NUMERIC NOT NULL
             ,PRIMARY KEY(tablespace_name,file_id,block_id)
          );
+         CREATE INDEX dba_free_space_i01 ON dba_free_space(
+             tablespace_name
+         );
          
          CREATE TABLE dba_data_files(
              tablespace_name TEXT    NOT NULL
             ,file_id         INTEGER NOT NULL
             ,user_bytes      NUMERIC NOT NULL
             ,PRIMARY KEY(tablespace_name,file_id)
+         );
+         CREATE INDEX dba_data_files_i01 ON dba_data_files(
+             tablespace_name
          );
          
          CREATE TABLE dba_segments(
@@ -368,6 +374,16 @@ class Instance(object):
             ,segment_type    TEXT    NOT NULL
             ,bytes           NUMERIC NOT NULL
             ,PRIMARY KEY(owner,segment_name,partition_name)
+         );
+         CREATE INDEX dba_segments_i01 ON dba_segments(
+             owner
+            ,segment_name
+         );
+         CREATE INDEX dba_segments_i02 ON dba_segments(
+             tablespace_name
+         );
+         CREATE INDEX dba_segments_i03 ON dba_segments(
+             segment_type
          );
          
          CREATE TABLE dba_tables(
@@ -381,6 +397,12 @@ class Instance(object):
             ,secondary       TEXT
             ,PRIMARY KEY(owner,table_name)
          );
+         CREATE INDEX dba_tables_i01 ON dba_tables(
+             tablespace_name
+         );
+         CREATE INDEX dba_tables_i02 ON dba_tables(
+             secondary
+         );
          
          CREATE TABLE dba_tab_partitions(
              table_owner     TEXT    NOT NULL
@@ -390,6 +412,13 @@ class Instance(object):
             ,compress_for    TEXT
             ,PRIMARY KEY(table_owner,table_name,partition_name)
          );
+         CREATE INDEX dba_tab_partitions_i01 ON dba_tab_partitions(
+             table_owner
+            ,table_name
+         );
+         CREATE INDEX dba_tab_partitions_i02 ON dba_tab_partitions(
+             tablespace_name
+         );
          
          CREATE TABLE dba_tab_columns(
              owner           TEXT    NOT NULL
@@ -397,6 +426,10 @@ class Instance(object):
             ,column_name     TEXT    NOT NULL
             ,data_type       TEXT    NOT NULL
             ,PRIMARY KEY(owner,table_name,column_name)
+         );
+         CREATE INDEX dba_tab_columns_i01 ON dba_tab_columns(
+             owner
+            ,table_name
          );
          
          CREATE TABLE dba_indexes(
@@ -406,12 +439,20 @@ class Instance(object):
             ,table_name      TEXT    NOT NULL
             ,index_type      TEXT    NOT NULL
             ,compression     TEXT
+            ,tablespace_name TEXT
             ,status          TEXT
             ,domidx_status   TEXT
             ,domidx_opstatus TEXT
             ,ityp_owner      TEXT
             ,ityp_name       TEXT
             ,PRIMARY KEY(owner,index_name)
+         );
+         CREATE INDEX dba_indexes_i01 ON dba_indexes(
+             table_owner
+            ,table_name
+         );
+         CREATE INDEX dba_indexes_i02 ON dba_indexes(
+             tablespace_name
          );
          
          CREATE TABLE dba_ind_columns(
@@ -420,14 +461,26 @@ class Instance(object):
             ,column_name     TEXT    NOT NULL
             ,PRIMARY KEY(index_owner,index_name,column_name)
          );
+         CREATE INDEX dba_ind_columns_i01 ON dba_ind_columns(
+             index_owner
+            ,index_name
+         );
          
          CREATE TABLE dba_lobs(
              owner           TEXT    NOT NULL
             ,table_name      TEXT    NOT NULL
             ,segment_name    TEXT    NOT NULL
+            ,tablespace_name TEXT
             ,index_name      TEXT    NOT NULL
             ,compression     TEXT
             ,PRIMARY KEY(owner,table_name,segment_name)
+         );
+         CREATE INDEX dba_lobs_i01 ON dba_lobs(
+             owner
+            ,table_name
+         );
+         CREATE INDEX dba_lobs_i02 ON dba_lobs(
+             tablespace_name
          );
          
          CREATE TABLE sdo_index_metadata_table(
@@ -435,6 +488,10 @@ class Instance(object):
             ,sdo_index_name  TEXT    NOT NULL
             ,sdo_index_table TEXT    NOT NULL
             ,PRIMARY KEY(sdo_index_owner,sdo_index_name)
+         );
+         CREATE INDEX sdo_index_metadata_table_i01 ON sdo_index_metadata_table(
+             sdo_index_owner
+            ,sdo_index_table
          );
          
          CREATE TABLE all_sdo_geor_sysdata(
@@ -444,6 +501,10 @@ class Instance(object):
             ,rdt_table_name  TEXT    NOT NULL
             ,PRIMARY KEY(owner,rdt_table_name)
          );
+         CREATE INDEX all_sdo_geor_sysdata_i01 ON all_sdo_geor_sysdata(
+             owner
+            ,rdt_table_name
+         );
          
          CREATE TABLE ctx_indexes(
              idx_owner       TEXT    NOT NULL
@@ -451,6 +512,10 @@ class Instance(object):
             ,idx_table_owner TEXT    NOT NULL
             ,idx_table       TEXT    NOT NULL
             ,PRIMARY KEY(idx_owner,idx_name)
+         );
+         CREATE INDEX ctx_indexes_i01 ON ctx_indexes(
+             idx_table_owner
+            ,idx_table
          );
          
          CREATE TABLE sde_layers(
@@ -474,6 +539,14 @@ class Instance(object):
             ,index_name      TEXT    NOT NULL
             ,index_id        TEXT    NOT NULL
             ,PRIMARY KEY(owner,table_name,index_name)
+         );
+         CREATE INDEX sde_st_geometry_index_i01 ON sde_st_geometry_index(
+             owner
+            ,table_name
+         );
+         CREATE INDEX sde_st_geometry_index_i02 ON sde_st_geometry_index(
+             owner
+            ,index_name
          );
          
          CREATE VIEW segments_compression(
@@ -513,7 +586,7 @@ class Instance(object):
             ELSE
                'UNK'
             END
-          WHEN bbb.segment_type = 'INDEX'
+          WHEN bbb.segment_type IN ('INDEX','LOBINDEX')
           THEN
             CASE 
             WHEN ddd.compression IS NULL OR ddd.compression = 'DISABLED'
@@ -538,6 +611,21 @@ class Instance(object):
             THEN
                'LOW'
             WHEN eee.compress_for IN ('ADVANCED')
+            THEN
+               'HIGH'
+            ELSE
+               'UNK'
+            END
+          WHEN bbb.segment_type = 'LOBSEGMENT'
+          THEN
+            CASE 
+            WHEN hhh.compression IS NULL OR hhh.compression = 'NONE'
+            THEN
+               'NONE'
+            WHEN hhh.compression IN ('LOW')
+            THEN
+               'LOW'
+            WHEN hhh.compression IN ('HIGH')
             THEN
                'HIGH'
             ELSE
@@ -615,7 +703,12 @@ class Instance(object):
          all_sdo_geor_sysdata ggg
          ON
              ccc.owner          = ggg.owner
-         AND ccc.table_name     = ggg.rdt_table_name;    
+         AND ccc.table_name     = ggg.rdt_table_name
+         LEFT JOIN
+         dba_lobs hhh
+         ON
+             bbb.owner          = hhh.owner
+         AND bbb.segment_name   = hhh.segment_name;    
       """);
       
    ############################################################################
@@ -849,13 +942,14 @@ class Instance(object):
             ,table_name
             ,index_type
             ,compression
+            ,tablespace_name
             ,status
             ,domidx_status
             ,domidx_opstatus
             ,ityp_owner
             ,ityp_name
          ) VALUES (
-            ?,?,?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -867,6 +961,7 @@ class Instance(object):
          ,a.table_name
          ,a.index_type
          ,a.compression
+         ,a.tablespace_name
          ,a.status
          ,a.domidx_status
          ,a.domidx_opstatus
@@ -912,10 +1007,11 @@ class Instance(object):
              owner
             ,table_name
             ,segment_name
+            ,tablespace_name
             ,index_name
             ,compression
          ) VALUES (
-            ?,?,?,?,?
+            ?,?,?,?,?,?
          )
       """;
       
@@ -924,6 +1020,7 @@ class Instance(object):
           a.owner
          ,a.table_name
          ,a.segment_name
+         ,a.tablespace_name
          ,a.index_name
          ,a.compression
          FROM
@@ -1103,6 +1200,7 @@ class Instance(object):
             
       fromc.close();
       self._sqliteconn.commit();
+      toc.execute("ANALYZE");
       toc.close();
       
    ############################################################################
@@ -2404,7 +2502,7 @@ class Resource(object):
       
    @property
    def secondaries_l(self):
-      return [d for d in self.secondaries.values()];
+      return [d for k,d in sorted(self.secondaries.values())];
       
    ####
    def bytes_used(
