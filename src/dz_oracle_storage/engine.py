@@ -64,6 +64,8 @@ class Instance(object):
       self._bytes_allocated   = None;
       self._bytes_used        = None;
       self._bytes_free        = None;
+      self._bytes_recyclebin  = None;
+      
       self._tablespaces       = {};
       self._tablespace_groups = {};
       self._schemas           = {};
@@ -166,6 +168,19 @@ class Instance(object):
    ####
    def gb_free(self):
       return self.bytes_free() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_recyclebin(self):
+      if self._bytes_recyclebin is None:
+         val = 0;
+         for item in self.tablespaces_l:
+            val += item.bytes_recyclebin();
+         self._bytes_recyclebin = val;
+      return self._bytes_recyclebin;
+   
+   ####
+   def gb_recyclebin(self):
+      return self.bytes_recyclebin() / 1024 / 1024 / 1024;
       
    @property
    def tablespaces(self): 
@@ -364,6 +379,20 @@ class Instance(object):
          );
          CREATE INDEX dba_data_files_i01 ON dba_data_files(
              tablespace_name
+         );
+         
+         CREATE TABLE dba_recyclebin(
+             owner           TEXT    NOT NULL
+            ,object_name     TEXT    NOT NULL
+            ,original_name   TEXT    NOT NULL
+            ,ts_name         TEXT
+         );
+         CREATE INDEX dba_recyclebin_i01 ON dba_recyclebin(
+             owner
+            ,object_name
+         );
+         CREATE INDEX dba_recyclebin_i02 ON dba_recyclebin(
+             ts_name
          );
          
          CREATE TABLE dba_segments(
@@ -810,7 +839,34 @@ class Instance(object):
       fromc.execute(str_from);
       for row in fromc:
          toc.execute(str_to,row);
-         
+
+      ## dba_recyclebin
+      str_to = """
+         INSERT INTO dba_recyclebin(
+             owner
+            ,object_name
+            ,original_name
+            ,ts_name
+         ) VALUES (
+            ?,?,?,?
+         )
+      """;
+      
+      str_from  = """
+         SELECT
+          a.owner
+         ,a.object_name
+         ,a.original_name
+         ,a.ts_name
+         FROM
+         dba_recyclebin a
+      """;
+      str_from += self.dts_asof;
+      
+      fromc.execute(str_from);
+      for row in fromc:
+         toc.execute(str_to,row);
+    
       ## dba_segments
       str_to = """
          INSERT INTO dba_segments(
@@ -1200,7 +1256,7 @@ class Instance(object):
             
       fromc.close();
       self._sqliteconn.commit();
-      toc.execute("ANALYZE");
+      toc.execute("PRAGMA optimize;");
       toc.close();
       
    ############################################################################
@@ -1332,6 +1388,7 @@ class Instance(object):
       """;
       
       self._tablespaces = {};
+      
       curs.execute(str_sql);
       for row in curs:
          tablespace_name = row[0];
@@ -1346,6 +1403,40 @@ class Instance(object):
             ,bytes_used      = bytes_used
             ,bytes_free      = bytes_free
          );
+         
+      str_sql = """
+         SELECT
+          a.ts_name    AS tablespace_name
+         ,SUM(b.bytes) AS bytes_recyclebin
+         FROM (
+            SELECT
+             aa.owner
+            ,aa.object_name
+            ,aa.ts_name
+            FROM
+            dba_recyclebin aa
+            WHERE
+            aa.ts_name IS NOT NULL
+            GROUP BY
+             aa.owner
+            ,aa.object_name
+            ,aa.ts_name
+         ) a
+         JOIN
+         dba_segments b
+         ON
+             a.owner       = b.owner
+         AND a.object_name = b.segment_name
+         GROUP BY
+         a.ts_name
+      """;
+      
+      curs.execute(str_sql);
+      for row in curs:
+         tablespace_name  = row[0];
+         bytes_recyclebin = row[1];
+         
+         self._tablespaces[tablespace_name]._bytes_recyclebin = bytes_recyclebin;
          
       curs.close();
       
@@ -1576,6 +1667,17 @@ class TablespaceGroup(object):
       return self.bytes_free() / 1024 / 1024 / 1024;
       
    ####
+   def bytes_recyclebin(self):
+      rez = 0;
+      for item in self.tablespaces.values():
+         rez += item.bytes_recyclebin();
+      return rez;
+   
+   ####
+   def gb_recyclebin(self):
+      return self.bytes_recyclebin() / 1024 / 1024 / 1024;
+      
+   ####
    def bytes_comp_none(self):
       rez = 0;
       for item in self.tablespaces.values():
@@ -1654,17 +1756,20 @@ class Tablespace(object):
       ,bytes_free
    ):
    
-      self._parent          = parent;
-      self._sqliteconn      = parent._sqliteconn;
-      self._tablespace_name = tablespace_name;
-      self._bytes_allocated = bytes_allocated;
-      self._bytes_used      = bytes_used;
-      self._bytes_free      = bytes_free;
+      self._parent           = parent;
+      self._sqliteconn       = parent._sqliteconn;
+      self._tablespace_name  = tablespace_name;
+      self._bytes_allocated  = bytes_allocated;
+      self._bytes_used       = bytes_used;
       
-      self._bytes_comp_none = None;
-      self._bytes_comp_low  = None;
-      self._bytes_comp_high = None;
-      self._bytes_comp_unk  = None;
+      # bytes free may or may not include recyclebin
+      self._bytes_free       = bytes_free;
+      self._bytes_recyclebin = None;
+      
+      self._bytes_comp_none  = None;
+      self._bytes_comp_low   = None;
+      self._bytes_comp_high  = None;
+      self._bytes_comp_unk   = None;
       
    @property
    def tablespace_name(self):
@@ -1693,6 +1798,16 @@ class Tablespace(object):
    ####
    def gb_free(self):
       return self.bytes_free() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_recyclebin(self):
+      if self._bytes_recyclebin is None:
+         self._bytes_recyclebin = 0;
+      return self._bytes_recyclebin;
+   
+   ####
+   def gb_recyclebin(self):
+      return self.bytes_recyclebin() / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_none(self):
