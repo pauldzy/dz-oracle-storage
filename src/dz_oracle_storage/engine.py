@@ -619,7 +619,7 @@ class Instance(object):
           WHEN bbb.segment_type = 'LOBSEGMENT'
           THEN
             CASE 
-            WHEN hhh.compression IS NULL OR hhh.compression = 'NONE'
+            WHEN hhh.compression IS NULL OR hhh.compression IN ('NONE','NO')
             THEN
                'NONE'
             WHEN hhh.compression IN ('LOW')
@@ -2502,7 +2502,7 @@ class Resource(object):
       
    @property
    def secondaries_l(self):
-      return [d for k,d in sorted(self.secondaries.values())];
+      return [d for k,d in sorted(self.secondaries.items())];
       
    ####
    def bytes_used(
