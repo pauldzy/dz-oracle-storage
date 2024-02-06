@@ -15,6 +15,6 @@ setup(
    ,package_dir      = {'':'src'}
    ,install_requires = [
        'cx_Oracle'
-      ,'sqlite3',
+      ,'openpyxl',
     ]
 );
