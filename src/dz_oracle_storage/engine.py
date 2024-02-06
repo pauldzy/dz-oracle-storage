@@ -34,7 +34,7 @@ class Instance(object):
       self._has_text        = None;
       self._has_sde         = None;      
 
-      dbfile = slugify(name) + '.db';
+      dbfile = slugify(self._name) + '.db';
       if self._sqlite_location is not None:
          if not os.path.exists(self._sqlite_location):
             raise Exception('sqlite_location not found.');
@@ -42,7 +42,11 @@ class Instance(object):
          self._sqlitepath = self._sqlite_location + os.sep + dbfile;
 
       else:
-         self._sqlitepath  = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0))) + os.sep + dbfile;
+         self._sqlitepath  = os.path.dirname(
+            os.path.abspath(
+               inspect.stack()[-1][1]
+            )
+         ) + os.sep + dbfile;
          
       if self._use_existing_db and os.path.exists(self._sqlitepath):
          print("== using preexisting information per use_existing_db flag for instance " + self._name + ". ==",file=sys.stderr);
@@ -420,6 +424,7 @@ class Instance(object):
             ,table_name      TEXT    NOT NULL
             ,num_rows        INTEGER
             ,tablespace_name TEXT
+            ,compression     TEXT
             ,compress_for    TEXT
             ,partitioned     TEXT
             ,iot_type        TEXT
@@ -432,12 +437,16 @@ class Instance(object):
          CREATE INDEX dba_tables_i02 ON dba_tables(
              secondary
          );
+         CREATE INDEX dba_tables_i03 ON dba_tables(
+             compress_for
+         );
          
          CREATE TABLE dba_tab_partitions(
              table_owner     TEXT    NOT NULL
             ,table_name      TEXT    NOT NULL
             ,partition_name  TEXT    NOT NULL
             ,tablespace_name TEXT
+            ,compression     TEXT
             ,compress_for    TEXT
             ,PRIMARY KEY(table_owner,table_name,partition_name)
          );
@@ -447,6 +456,9 @@ class Instance(object):
          );
          CREATE INDEX dba_tab_partitions_i02 ON dba_tab_partitions(
              tablespace_name
+         );
+         CREATE INDEX dba_tab_partitions_i03 ON dba_tab_partitions(
+             compress_for
          );
          
          CREATE TABLE dba_tab_columns(
@@ -483,6 +495,9 @@ class Instance(object):
          CREATE INDEX dba_indexes_i02 ON dba_indexes(
              tablespace_name
          );
+         CREATE INDEX dba_indexes_i03 ON dba_indexes(
+             compression
+         );
          
          CREATE TABLE dba_ind_columns(
              index_owner     TEXT    NOT NULL
@@ -509,7 +524,14 @@ class Instance(object):
             ,table_name
          );
          CREATE INDEX dba_lobs_i02 ON dba_lobs(
+             owner
+            ,index_name
+         );
+         CREATE INDEX dba_lobs_i03 ON dba_lobs(
              tablespace_name
+         );
+         CREATE INDEX dba_lobs_i04 ON dba_lobs(
+             compression
          );
          
          CREATE TABLE sdo_index_metadata_table(
@@ -532,7 +554,7 @@ class Instance(object):
          );
          CREATE INDEX all_sdo_geor_sysdata_i01 ON all_sdo_geor_sysdata(
              owner
-            ,rdt_table_name
+            ,table_name
          );
          
          CREATE TABLE ctx_indexes(
@@ -585,6 +607,8 @@ class Instance(object):
             ,segment_type
             ,tablespace_name
             ,bytes_used
+            ,src_compression
+            ,src_compress_for
             ,compression
             ,partitioned
             ,iot_type
@@ -599,6 +623,32 @@ class Instance(object):
          ,bbb.segment_type
          ,bbb.tablespace_name
          ,bbb.bytes AS bytes_used
+         ,CASE
+          WHEN bbb.segment_type = 'TABLE'
+          THEN
+            ccc.compression
+          WHEN bbb.segment_type IN ('INDEX','LOBINDEX')
+          THEN
+            ddd.compression
+          WHEN bbb.segment_type = 'PARTITION'
+          THEN
+            eee.compression
+          WHEN bbb.segment_type = 'LOBSEGMENT'
+          THEN
+            hhh.compression
+          ELSE
+            NULL
+          END AS src_compression            
+         ,CASE
+          WHEN bbb.segment_type = 'TABLE'
+          THEN
+            ccc.compress_for
+          WHEN bbb.segment_type = 'PARTITION'
+          THEN
+            eee.compress_for
+          ELSE
+            NULL
+          END AS src_compress_for
          ,CASE
           WHEN bbb.segment_type = 'TABLE'
           THEN
@@ -739,6 +789,8 @@ class Instance(object):
              bbb.owner          = hhh.owner
          AND bbb.segment_name   = hhh.segment_name;    
       """);
+      
+      c.close();
       
    ############################################################################
    def loadorcl(self):
@@ -905,12 +957,13 @@ class Instance(object):
             ,table_name
             ,num_rows
             ,tablespace_name
+            ,compression
             ,compress_for
             ,partitioned
             ,iot_type
             ,secondary
          ) VALUES (
-            ?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -920,6 +973,7 @@ class Instance(object):
          ,a.table_name
          ,a.num_rows
          ,a.tablespace_name
+         ,a.compression
          ,a.compress_for
          ,a.partitioned
          ,a.iot_type
@@ -940,9 +994,10 @@ class Instance(object):
             ,table_name
             ,partition_name
             ,tablespace_name
+            ,compression
             ,compress_for
          ) VALUES (
-            ?,?,?,?,?
+            ?,?,?,?,?,?
          )
       """;
       
@@ -952,6 +1007,7 @@ class Instance(object):
          ,a.table_name
          ,a.partition_name
          ,a.tablespace_name
+         ,a.compression
          ,a.compress_for
          FROM
          dba_tab_partitions a
@@ -2537,6 +2593,8 @@ class Resource(object):
             b.segment_type
           END AS segment_type
          ,a.tablespace_name
+         ,b.src_compression
+         ,b.src_compress_for
          ,b.bytes_used
          ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
          ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -2565,44 +2623,52 @@ class Resource(object):
       );
       table_name = None;
       for row in curs:
-         owner           = row[0];
-         table_name      = row[1];
-         partition_name  = row[2];
-         segment_type    = row[3];
-         tablespace_name = row[4];
-         bytes_used      = row[5];
-         bytes_comp_none = row[6];
-         bytes_comp_low  = row[7];
-         bytes_comp_high = row[8];
-         bytes_comp_unk  = row[9];
-         partitioned     = row[10];
-         iot_type        = row[11];
-         isgeor          = row[12];
+         owner            = row[0];
+         table_name       = row[1];
+         partition_name   = row[2];
+         segment_type     = row[3];
+         tablespace_name  = row[4];
+         src_compression  = row[5];
+         src_compress_for = row[6];
+         bytes_used       = row[7];
+         bytes_comp_none  = row[8];
+         bytes_comp_low   = row[9];
+         bytes_comp_high  = row[10];
+         bytes_comp_unk   = row[11];
+         partitioned      = row[12];
+         iot_type         = row[13];
+         isgeor           = row[14];
 
       # Abend hard if the item does have seconday = 'N'
       if table_name is None:
          raise Exception(self.table_owner + '.' + self.table_name + ' is not a resource.');     
 
       self._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-          parent_resource = self
-         ,depth           = 0
-         ,owner           = table_owner
-         ,segment_name    = table_name
-         ,partition_name  = partition_name
-         ,segment_type    = segment_type
-         ,tablespace_name = tablespace_name
-         ,bytes_used      = bytes_used
-         ,bytes_comp_none = bytes_comp_none
-         ,bytes_comp_low  = bytes_comp_low
-         ,bytes_comp_high = bytes_comp_high
-         ,bytes_comp_unk  = bytes_comp_unk
-         ,partitioned     = partitioned
-         ,iot_type        = iot_type
-         ,isgeor          = isgeor
+          parent_resource  = self
+         ,depth            = 0
+         ,owner            = table_owner
+         ,segment_name     = table_name
+         ,partition_name   = partition_name
+         ,segment_type     = segment_type
+         ,tablespace_name  = tablespace_name
+         ,src_compression  = src_compression
+         ,src_compress_for = src_compress_for
+         ,bytes_used       = bytes_used
+         ,bytes_comp_none  = bytes_comp_none
+         ,bytes_comp_low   = bytes_comp_low
+         ,bytes_comp_high  = bytes_comp_high
+         ,bytes_comp_unk   = bytes_comp_unk
+         ,partitioned      = partitioned
+         ,iot_type         = iot_type
+         ,isgeor           = isgeor
       );
             
       curs.close();
-            
+   
+   @property
+   def name(self):
+      return self._table_owner + '.' + self._table_name;   
+      
    @property
    def table_owner(self):
       return self._table_owner;
@@ -2713,29 +2779,33 @@ class Secondary(object):
       ,depth
       ,owner
       ,segment_name
-      ,partition_name  = None
-      ,segment_type    = None
-      ,tablespace_name = None
-      ,bytes_used      = None
-      ,bytes_comp_none = None
-      ,bytes_comp_low  = None
-      ,bytes_comp_high = None
-      ,bytes_comp_unk  = None
-      ,index_type      = None
-      ,ityp_owner      = None
-      ,ityp_name       = None
-      ,partitioned     = None
-      ,iot_type        = None
-      ,isgeor          = None
+      ,partition_name   = None
+      ,segment_type     = None
+      ,tablespace_name  = None
+      ,src_compression  = None
+      ,src_compress_for = None
+      ,bytes_used       = None
+      ,bytes_comp_none  = None
+      ,bytes_comp_low   = None
+      ,bytes_comp_high  = None
+      ,bytes_comp_unk   = None
+      ,index_type       = None
+      ,ityp_owner       = None
+      ,ityp_name        = None
+      ,partitioned      = None
+      ,iot_type         = None
+      ,isgeor           = None
    ):
    
-      self._parent_resource = parent_resource;
-      self._owner           = owner;
-      self._depth           = depth;
-      self._segment_name    = segment_name;
-      self._partition_name  = partition_name;
-      self._segment_type    = segment_type;
-      self._tablespace_name = tablespace_name;
+      self._parent_resource  = parent_resource;
+      self._owner            = owner;
+      self._depth            = depth;
+      self._segment_name     = segment_name;
+      self._partition_name   = partition_name;
+      self._segment_type     = segment_type;
+      self._tablespace_name  = tablespace_name;
+      self._src_compression  = src_compression;
+      self._src_compress_for = src_compress_for;
       
       if bytes_used is None:
          self._bytes_used   = 0;
@@ -2778,6 +2848,7 @@ class Secondary(object):
             ,b.partition_name
             ,b.segment_type
             ,b.tablespace_name
+            ,b.src_compression
             ,b.bytes_used
             ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
             ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -2802,6 +2873,7 @@ class Secondary(object):
             ,d.partition_name
             ,d.segment_type
             ,d.tablespace_name
+            ,d.src_compression
             ,d.bytes_used
             ,CASE WHEN d.compression = 'NONE' THEN d.bytes_used ELSE 0 END AS bytes_comp_none
             ,CASE WHEN d.compression = 'LOW'  THEN d.bytes_used ELSE 0 END AS bytes_comp_low
@@ -2833,11 +2905,12 @@ class Secondary(object):
             partition_name  = row[2];
             segment_type    = row[3];
             tablespace_name = row[4];
-            bytes_used      = row[5];
-            bytes_comp_none = row[6];
-            bytes_comp_high = row[7];
-            bytes_comp_low  = row[8];
-            bytes_comp_unk  = row[9];
+            src_compression = row[5];
+            bytes_used      = row[6];
+            bytes_comp_none = row[7];
+            bytes_comp_high = row[8];
+            bytes_comp_low  = row[9];
+            bytes_comp_unk  = row[10];
          
             if (owner,segment_name,partition_name) not in parent_resource._secondaries:
                parent_resource._secondaries[(owner,segment_name,partition_name)] = Secondary(
@@ -2848,6 +2921,7 @@ class Secondary(object):
                   ,partition_name  = partition_name
                   ,segment_type    = segment_type
                   ,tablespace_name = tablespace_name
+                  ,src_compression = src_compression
                   ,bytes_used      = bytes_used
                   ,bytes_comp_none = bytes_comp_none
                   ,bytes_comp_low  = bytes_comp_low
@@ -2863,6 +2937,7 @@ class Secondary(object):
             ,b.partition_name
             ,b.segment_type
             ,b.tablespace_name
+            ,b.src_compression
             ,b.bytes_used
             ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
             ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -2896,14 +2971,15 @@ class Secondary(object):
             partition_name  = row[2];
             segment_type    = row[3];
             tablespace_name = row[4];
-            bytes_used      = row[5];
-            bytes_comp_none = row[6];
-            bytes_comp_low  = row[7];
-            bytes_comp_high = row[8];
-            bytes_comp_unk  = row[9];
-            index_type      = row[10];
-            ityp_owner      = row[11];
-            ityp_name       = row[12];
+            src_compression = row[5];
+            bytes_used      = row[6];
+            bytes_comp_none = row[7];
+            bytes_comp_low  = row[8];
+            bytes_comp_high = row[9];
+            bytes_comp_unk  = row[10];
+            index_type      = row[11];
+            ityp_owner      = row[12];
+            ityp_name       = row[13];
             
             if (index_owner,index_name,partition_name) not in parent_resource._secondaries:
                parent_resource._secondaries[(index_owner,index_name,partition_name)] = Secondary(
@@ -2914,6 +2990,7 @@ class Secondary(object):
                   ,partition_name  = partition_name
                   ,segment_type    = segment_type
                   ,tablespace_name = tablespace_name
+                  ,src_compression = src_compression
                   ,bytes_used      = bytes_used
                   ,bytes_comp_none = bytes_comp_none
                   ,bytes_comp_low  = bytes_comp_low
@@ -2936,6 +3013,8 @@ class Secondary(object):
                ,b.partition_name
                ,b.segment_type
                ,b.tablespace_name
+               ,b.src_compression
+               ,b.src_compress_for
                ,b.bytes_used
                ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
                ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -2963,35 +3042,39 @@ class Secondary(object):
             );
             
             for row in curs:
-               table_owner     = row[0];
-               table_name      = row[1];
-               partition_name  = row[2];
-               segment_type    = row[3];
-               tablespace_name = row[4];
-               bytes_used      = row[5];
-               bytes_comp_none = row[6];
-               bytes_comp_low  = row[7];
-               bytes_comp_high = row[8];
-               bytes_comp_unk  = row[9];
-               iot_type        = row[10];
-               isgeor          = row[11];
+               table_owner      = row[0];
+               table_name       = row[1];
+               partition_name   = row[2];
+               segment_type     = row[3];
+               tablespace_name  = row[4];
+               src_compression  = row[5];
+               src_compress_for = row[6];
+               bytes_used       = row[7];
+               bytes_comp_none  = row[8];
+               bytes_comp_low   = row[9];
+               bytes_comp_high  = row[10];
+               bytes_comp_unk   = row[11];
+               iot_type         = row[12];
+               isgeor           = row[13];
                
                if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                   parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-                      parent_resource = parent_resource
-                     ,depth           = depth + 1
-                     ,owner           = table_owner
-                     ,segment_name    = table_name
-                     ,partition_name  = partition_name
-                     ,segment_type    = segment_type
-                     ,tablespace_name = tablespace_name
-                     ,bytes_used      = bytes_used
-                     ,bytes_comp_none = bytes_comp_none
-                     ,bytes_comp_low  = bytes_comp_low
-                     ,bytes_comp_high = bytes_comp_high
-                     ,bytes_comp_unk  = bytes_comp_unk
-                     ,iot_type        = iot_type
-                     ,isgeor          = isgeor
+                      parent_resource  = parent_resource
+                     ,depth            = depth + 1
+                     ,owner            = table_owner
+                     ,segment_name     = table_name
+                     ,partition_name   = partition_name
+                     ,segment_type     = segment_type
+                     ,tablespace_name  = tablespace_name
+                     ,src_compression  = src_compression
+                     ,src_compress_for = src_compress_for
+                     ,bytes_used       = bytes_used
+                     ,bytes_comp_none  = bytes_comp_none
+                     ,bytes_comp_low   = bytes_comp_low
+                     ,bytes_comp_high  = bytes_comp_high
+                     ,bytes_comp_unk   = bytes_comp_unk
+                     ,iot_type         = iot_type
+                     ,isgeor           = isgeor
                   );
 
          elif self._ityp_owner == 'MDSYS' and self._ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
@@ -3028,6 +3111,8 @@ class Secondary(object):
                ,b.partition_name
                ,b.segment_type
                ,b.tablespace_name
+               ,b.src_compression
+               ,b.src_compress_for
                ,b.bytes_used
                ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
                ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -3058,35 +3143,39 @@ class Secondary(object):
             );
             
             for row in curs:
-               table_owner     = row[0];
-               table_name      = row[1];
-               partition_name  = row[2];
-               segment_type    = row[3];
-               tablespace_name = row[4];
-               bytes_used      = row[5];
-               bytes_comp_none = row[6];
-               bytes_comp_low  = row[7];
-               bytes_comp_high = row[8];
-               bytes_comp_unk  = row[9];
-               iot_type        = row[10];
-               isgeor          = row[11];
+               table_owner      = row[0];
+               table_name       = row[1];
+               partition_name   = row[2];
+               segment_type     = row[3];
+               tablespace_name  = row[4];
+               src_compression  = row[5];
+               src_compress_for = row[6];
+               bytes_used       = row[7];
+               bytes_comp_none  = row[8];
+               bytes_comp_low   = row[9];
+               bytes_comp_high  = row[10];
+               bytes_comp_unk   = row[11];
+               iot_type         = row[12];
+               isgeor           = row[13];
                
                if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                   parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-                      parent_resource = parent_resource
-                     ,depth           = depth + 1
-                     ,owner           = table_owner
-                     ,segment_name    = table_name
-                     ,partition_name  = partition_name
-                     ,segment_type    = segment_type
-                     ,tablespace_name = tablespace_name
-                     ,bytes_used      = bytes_used
-                     ,bytes_comp_none = bytes_comp_none
-                     ,bytes_comp_low  = bytes_comp_low
-                     ,bytes_comp_high = bytes_comp_high
-                     ,bytes_comp_unk  = bytes_comp_unk
-                     ,iot_type        = iot_type
-                     ,isgeor          = isgeor
+                      parent_resource  = parent_resource
+                     ,depth            = depth + 1
+                     ,owner            = table_owner
+                     ,segment_name     = table_name
+                     ,partition_name   = partition_name
+                     ,segment_type     = segment_type
+                     ,tablespace_name  = tablespace_name
+                     ,src_compression  = src_compression
+                     ,src_compress_for = src_compress_for
+                     ,bytes_used       = bytes_used
+                     ,bytes_comp_none  = bytes_comp_none
+                     ,bytes_comp_low   = bytes_comp_low
+                     ,bytes_comp_high  = bytes_comp_high
+                     ,bytes_comp_unk   = bytes_comp_unk
+                     ,iot_type         = iot_type
+                     ,isgeor           = isgeor
                   );
 
          elif self._ityp_owner == 'SDE' and self._ityp_name == 'ST_SPATIAL_INDEX':
@@ -3121,6 +3210,8 @@ class Secondary(object):
                ,b.partition_name
                ,b.segment_type
                ,b.tablespace_name
+               ,b.src_compression
+               ,b.src_compress_for
                ,b.bytes_used
                ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
                ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -3149,35 +3240,39 @@ class Secondary(object):
             );
             
             for row in curs:
-               table_owner     = row[0];
-               table_name      = row[1];
-               partition_name  = row[2];
-               segment_type    = row[3];
-               tablespace_name = row[4];
-               bytes_used      = row[5];
-               bytes_comp_none = row[6];
-               bytes_comp_low  = row[7];
-               bytes_comp_high = row[8];
-               bytes_comp_unk  = row[9];
-               iot_type        = row[10];
-               isgeor          = row[11];
+               table_owner      = row[0];
+               table_name       = row[1];
+               partition_name   = row[2];
+               segment_type     = row[3];
+               tablespace_name  = row[4];
+               src_compression  = row[5];
+               src_compress_for = row[6];
+               bytes_used       = row[7];
+               bytes_comp_none  = row[8];
+               bytes_comp_low   = row[9];
+               bytes_comp_high  = row[10];
+               bytes_comp_unk   = row[11];
+               iot_type         = row[12];
+               isgeor           = row[13];
                
                if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                   parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-                      parent_resource = parent_resource
-                     ,depth           = depth + 1
-                     ,owner           = table_owner
-                     ,segment_name    = table_name
-                     ,partition_name  = partition_name
-                     ,segment_type    = segment_type
-                     ,tablespace_name = tablespace_name
-                     ,bytes_used      = bytes_used
-                     ,bytes_comp_none = bytes_comp_none
-                     ,bytes_comp_low  = bytes_comp_low
-                     ,bytes_comp_high = bytes_comp_high
-                     ,bytes_comp_unk  = bytes_comp_unk
-                     ,iot_type        = iot_type
-                     ,isgeor          = isgeor
+                      parent_resource  = parent_resource
+                     ,depth            = depth + 1
+                     ,owner            = table_owner
+                     ,segment_name     = table_name
+                     ,partition_name   = partition_name
+                     ,segment_type     = segment_type
+                     ,tablespace_name  = tablespace_name
+                     ,src_compression  = src_compression
+                     ,src_compress_for = src_compress_for
+                     ,bytes_used       = bytes_used
+                     ,bytes_comp_none  = bytes_comp_none
+                     ,bytes_comp_low   = bytes_comp_low
+                     ,bytes_comp_high  = bytes_comp_high
+                     ,bytes_comp_unk   = bytes_comp_unk
+                     ,iot_type         = iot_type
+                     ,isgeor           = isgeor
                   );
             
          else:
@@ -3195,6 +3290,8 @@ class Secondary(object):
             ,a.partition_name
             ,b.segment_type
             ,a.tablespace_name
+            ,b.src_compression
+            ,b.src_compress_for
             ,b.bytes_used
             ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
             ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -3222,31 +3319,35 @@ class Secondary(object):
          );
          
          for row in curs:
-            table_owner     = row[0];
-            table_name      = row[1];
-            partition_name  = row[2];
-            segment_type    = row[3];
-            tablespace_name = row[4];
-            bytes_used      = row[5];
-            bytes_comp_none = row[6];
-            bytes_comp_low  = row[7];
-            bytes_comp_high = row[8];
-            bytes_comp_unk  = row[9];
+            table_owner      = row[0];
+            table_name       = row[1];
+            partition_name   = row[2];
+            segment_type     = row[3];
+            tablespace_name  = row[4];
+            src_compression  = row[5];
+            src_compress_for = row[6];
+            bytes_used       = row[7];
+            bytes_comp_none  = row[8];
+            bytes_comp_low   = row[9];
+            bytes_comp_high  = row[10];
+            bytes_comp_unk   = row[11];
             
             if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-                   parent_resource = parent_resource
-                  ,depth           = depth + 1
-                  ,owner           = table_owner
-                  ,segment_name    = table_name
-                  ,partition_name  = partition_name
-                  ,segment_type    = segment_type
-                  ,tablespace_name = tablespace_name
-                  ,bytes_used      = bytes_used
-                  ,bytes_comp_none = bytes_comp_none
-                  ,bytes_comp_low  = bytes_comp_low
-                  ,bytes_comp_high = bytes_comp_high
-                  ,bytes_comp_unk  = bytes_comp_unk
+                   parent_resource  = parent_resource
+                  ,depth            = depth + 1
+                  ,owner            = table_owner
+                  ,segment_name     = table_name
+                  ,partition_name   = partition_name
+                  ,segment_type     = segment_type
+                  ,tablespace_name  = tablespace_name
+                  ,src_compression  = src_compression
+                  ,src_compress_for = src_compress_for
+                  ,bytes_used       = bytes_used
+                  ,bytes_comp_none  = bytes_comp_none
+                  ,bytes_comp_low   = bytes_comp_low
+                  ,bytes_comp_high  = bytes_comp_high
+                  ,bytes_comp_unk   = bytes_comp_unk
                );
  
       #########################################################################
@@ -3259,6 +3360,8 @@ class Secondary(object):
             ,b.partition_name
             ,b.segment_type
             ,b.tablespace_name
+            ,b.src_compression
+            ,b.src_compress_for
             ,b.bytes_used
             ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
             ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
@@ -3286,37 +3389,48 @@ class Secondary(object):
          );
          
          for row in curs:
-            table_owner     = row[0];
-            table_name      = row[1];
-            partition_name  = row[2];
-            segment_type    = row[3];
-            tablespace_name = row[4];
-            bytes_used      = row[5];
-            bytes_comp_none = row[6];
-            bytes_comp_low  = row[7];
-            bytes_comp_high = row[8];
-            bytes_comp_unk  = row[9];
-            isgeor          = row[10];
+            table_owner      = row[0];
+            table_name       = row[1];
+            partition_name   = row[2];
+            segment_type     = row[3];
+            tablespace_name  = row[4];
+            src_compression  = row[5];
+            src_compress_for = row[6];
+            bytes_used       = row[7];
+            bytes_comp_none  = row[8];
+            bytes_comp_low   = row[9];
+            bytes_comp_high  = row[10];
+            bytes_comp_unk   = row[11];
+            isgeor           = row[12];
             
             if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
                parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-                   parent_resource = parent_resource
-                  ,depth           = depth + 1
-                  ,owner           = table_owner
-                  ,segment_name    = table_name
-                  ,partition_name  = partition_name
-                  ,segment_type    = segment_type
-                  ,tablespace_name = tablespace_name
-                  ,bytes_used      = bytes_used
-                  ,bytes_comp_none = bytes_comp_none
-                  ,bytes_comp_low  = bytes_comp_low
-                  ,bytes_comp_high = bytes_comp_high
-                  ,bytes_comp_unk  = bytes_comp_unk
-                  ,isgeor          = isgeor
+                   parent_resource  = parent_resource
+                  ,depth            = depth + 1
+                  ,owner            = table_owner
+                  ,segment_name     = table_name
+                  ,partition_name   = partition_name
+                  ,segment_type     = segment_type
+                  ,tablespace_name  = tablespace_name
+                  ,src_compression  = src_compression
+                  ,src_compress_for = src_compress_for
+                  ,bytes_used       = bytes_used
+                  ,bytes_comp_none  = bytes_comp_none
+                  ,bytes_comp_low   = bytes_comp_low
+                  ,bytes_comp_high  = bytes_comp_high
+                  ,bytes_comp_unk   = bytes_comp_unk
+                  ,isgeor           = isgeor
                );
       
       curs.close();
       
+   @property
+   def name(self):
+      if self._partition_name is None:
+         return self._owner + '.' + self._segment_name;
+      else:
+         return self._owner + '.' + self._segment_name + '.' + self._partition_name;
+         
    @property
    def depth(self):
       return self._depth;
@@ -3340,6 +3454,14 @@ class Secondary(object):
    @property
    def tablespace_name(self):
       return self._tablespace_name;
+      
+   @property
+   def src_compression(self):
+      return self._src_compression;
+  
+   @property
+   def src_compress_for(self):
+      return self._src_compress_for;
       
    ####
    def bytes_used(
