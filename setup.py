@@ -11,7 +11,7 @@ setup(
    ,url              = 'https://github.com/pauldzy/dz-oracle-storage'
    ,author_email     = 'paul@dziemiela.com'
    ,license          = 'CC0 1.0 Universal public domain dedication'
-   ,packages         = ['dz-oracle-storage']
+   ,packages         = ['dz_oracle_storage']
    ,package_dir      = {'':'src'}
    ,install_requires = [
        'cx_Oracle'
