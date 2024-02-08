@@ -518,6 +518,7 @@ class Instance(object):
          CREATE TABLE dba_lobs(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
+            ,column_name      TEXT    NOT NULL
             ,segment_name     TEXT    NOT NULL
             ,tablespace_name  TEXT
             ,index_name       TEXT    NOT NULL
@@ -1032,12 +1033,13 @@ class Instance(object):
          INSERT INTO dba_lobs(
              owner
             ,table_name
+            ,column_name
             ,segment_name
             ,tablespace_name
             ,index_name
             ,compression
          ) VALUES (
-            ?,?,?,?,?,?
+            ?,?,?,?,?,?,?
          )
       """;
       
@@ -1045,6 +1047,7 @@ class Instance(object):
          SELECT
           a.owner
          ,a.table_name
+         ,a.column_name
          ,a.segment_name
          ,a.tablespace_name
          ,a.index_name

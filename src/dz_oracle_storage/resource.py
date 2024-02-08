@@ -112,6 +112,8 @@ class Resource(object):
          ,bytes_comp_unk   = bytes_comp_unk
          ,partitioned      = partitioned
          ,iot_type         = iot_type
+         ,secondary        = secondary
+         ,secondary_above  = None
          ,isgeor           = isgeor
       );
             

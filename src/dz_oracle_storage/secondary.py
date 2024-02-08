@@ -25,6 +25,8 @@ class Secondary(object):
       ,ityp_name        = None
       ,partitioned      = None
       ,iot_type         = None
+      ,secondary        = None
+      ,secondary_above  = None
       ,isgeor           = None
    ):
    
@@ -69,6 +71,8 @@ class Secondary(object):
       self._ityp_name       = ityp_name;
       self._partitioned     = partitioned;
       self._iot_type        = iot_type;
+      self._secondary       = secondary;
+      self._secondary_above = secondary_above;
       self._isgeor          = isgeor;
       
       curs = parent_resource._sqliteconn.cursor();
@@ -167,6 +171,8 @@ class Secondary(object):
                   ,bytes_comp_low  = bytes_comp_low
                   ,bytes_comp_high = bytes_comp_high
                   ,bytes_comp_unk  = bytes_comp_unk
+                  ,secondary       = self._secondary
+                  ,secondary_above = self._secondary
                );
             
          # Harvest all table indexes
@@ -242,6 +248,8 @@ class Secondary(object):
                   ,index_type      = index_type
                   ,ityp_owner      = ityp_owner
                   ,ityp_name       = ityp_name
+                  ,secondary       = self._secondary
+                  ,secondary_above = self._secondary
                );
     
       elif self._index_type == 'DOMAIN':
@@ -321,6 +329,8 @@ class Secondary(object):
                      ,bytes_comp_unk   = bytes_comp_unk
                      ,iot_type         = iot_type
                      ,isgeor           = isgeor
+                     ,secondary        = 'Y'
+                     ,secondary_above  = self._secondary
                   );
 
          elif self._ityp_owner == 'MDSYS' and self._ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
@@ -425,6 +435,8 @@ class Secondary(object):
                      ,bytes_comp_unk   = bytes_comp_unk
                      ,iot_type         = iot_type
                      ,isgeor           = isgeor
+                     ,secondary        = 'Y'
+                     ,secondary_above  = self._secondary
                   );
 
          elif self._ityp_owner == 'SDE' and self._ityp_name == 'ST_SPATIAL_INDEX':
@@ -525,6 +537,8 @@ class Secondary(object):
                      ,bytes_comp_unk   = bytes_comp_unk
                      ,iot_type         = iot_type
                      ,isgeor           = isgeor
+                     ,secondary        = 'Y'
+                     ,secondary_above  = self._secondary
                   );
             
          else:
@@ -603,6 +617,8 @@ class Secondary(object):
                   ,bytes_comp_low   = bytes_comp_low
                   ,bytes_comp_high  = bytes_comp_high
                   ,bytes_comp_unk   = bytes_comp_unk
+                  ,secondary        = 'Y'
+                  ,secondary_above  = self._secondary
                );
  
       #########################################################################
@@ -678,6 +694,8 @@ class Secondary(object):
                   ,bytes_comp_high  = bytes_comp_high
                   ,bytes_comp_unk   = bytes_comp_unk
                   ,isgeor           = isgeor
+                  ,secondary        = 'Y'
+                  ,secondary_above  = self._secondary
                );
       
       curs.close();
@@ -724,6 +742,14 @@ class Secondary(object):
    @property
    def src_compress_for(self):
       return self._src_compress_for;
+      
+   @property
+   def secondary(self):
+      return self._secondary;
+      
+   @property
+   def secondary_above(self):
+      return self._secondary_above;
       
    ####
    def bytes_used(
@@ -794,3 +820,12 @@ class Secondary(object):
       ,igtbs = None
    ):
       return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
+      
+   ####
+   def compression_ddl(
+       self
+      ,recipe
+   ):
+   
+      if recipe == 'HIGH':
+         None
