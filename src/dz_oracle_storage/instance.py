@@ -14,13 +14,13 @@ class Instance(object):
    
    def __init__(
        self
-      ,name
-      ,username
-      ,password
-      ,hoststring
-      ,sqlite_location = None
-      ,use_flashback   = False
-      ,use_existing_db = False
+      ,name: str
+      ,username: str
+      ,password: str
+      ,hoststring: str
+      ,sqlite_location: str  = None
+      ,use_flashback: bool   = False
+      ,use_existing_db: bool = False
    ):
    
       self._name            = name;
@@ -433,6 +433,7 @@ class Instance(object):
             ,compress_for     TEXT
             ,partitioned      TEXT
             ,iot_type         TEXT
+            ,temporary        TEXT
             ,secondary        TEXT
             ,PRIMARY KEY(owner,table_name)
          );
@@ -478,6 +479,7 @@ class Instance(object):
             ,table_name
          );
          
+         /* dba_indexes */
          CREATE TABLE dba_indexes(
              owner            TEXT    NOT NULL
             ,index_name       TEXT    NOT NULL
@@ -491,6 +493,7 @@ class Instance(object):
             ,domidx_opstatus  TEXT
             ,ityp_owner       TEXT
             ,ityp_name        TEXT
+            ,parameters       TEXT
             ,PRIMARY KEY(owner,index_name)
          );
          CREATE INDEX dba_indexes_i01 ON dba_indexes(
@@ -507,12 +510,20 @@ class Instance(object):
          CREATE TABLE dba_ind_columns(
              index_owner      TEXT    NOT NULL
             ,index_name       TEXT    NOT NULL
-            ,column_name      TEXT    NOT NULL
+            ,table_owner      TEXT    NOT NULL
+            ,table_name       TEXT    NOT NULL
+            ,column_name      TEXT
+            ,column_position  INTEGER NOT NULL
+            ,descend          TEXT
             ,PRIMARY KEY(index_owner,index_name,column_name)
          );
          CREATE INDEX dba_ind_columns_i01 ON dba_ind_columns(
              index_owner
             ,index_name
+         );
+         CREATE INDEX dba_ind_columns_i02 ON dba_ind_columns(
+             table_owner
+            ,table_name
          );
          
          CREATE TABLE dba_lobs(
@@ -523,6 +534,8 @@ class Instance(object):
             ,tablespace_name  TEXT
             ,index_name       TEXT    NOT NULL
             ,compression      TEXT
+            ,partitioned      TEXT
+            ,securefile       TEXT
             ,PRIMARY KEY(owner,table_name,segment_name)
          );
          CREATE INDEX dba_lobs_i01 ON dba_lobs(
@@ -540,6 +553,30 @@ class Instance(object):
              compression
          );
          
+         /* dba_varrays */
+         CREATE TABLE dba_varrays(
+             owner               TEXT    NOT NULL
+            ,parent_table_name   TEXT    NOT NULL
+            ,parent_table_column TEXT    NOT NULL
+            ,type_owner          TEXT    NOT NULL
+            ,type_name           TEXT    NOT NULL
+            ,lob_name            TEXT
+            ,PRIMARY KEY(owner,parent_table_name,parent_table_column)
+         );
+         CREATE INDEX dba_varrays_i01 ON dba_varrays(
+             owner
+            ,parent_table_name
+         );
+         CREATE INDEX dba_varrays_i02 ON dba_varrays(
+             owner
+            ,lob_name
+         );
+         CREATE INDEX dba_varrays_i03 ON dba_varrays(
+             type_owner
+            ,type_name
+         );
+         
+         /* sdo_index_metadata_table */
          CREATE TABLE sdo_index_metadata_table(
              sdo_index_owner  TEXT    NOT NULL
             ,sdo_index_name   TEXT    NOT NULL
@@ -658,6 +695,7 @@ class Instance(object):
             ,bytes_comp_unk
             ,partitioned
             ,iot_type
+            ,temporary
             ,secondary
             ,isgeor
          )
@@ -691,6 +729,7 @@ class Instance(object):
          
          ,a.partitioned
          ,a.iot_type
+         ,a.temporary
          ,a.secondary
          ,b.isgeor
          FROM 
@@ -876,9 +915,10 @@ class Instance(object):
             ,compress_for
             ,partitioned
             ,iot_type
+            ,temporary
             ,secondary
          ) VALUES (
-            ?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -892,6 +932,7 @@ class Instance(object):
          ,a.compress_for
          ,a.partitioned
          ,a.iot_type
+         ,a.temporary
          ,a.secondary
          FROM
          dba_tables a
@@ -975,8 +1016,9 @@ class Instance(object):
             ,domidx_opstatus
             ,ityp_owner
             ,ityp_name
+            ,parameters
          ) VALUES (
-            ?,?,?,?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -994,6 +1036,7 @@ class Instance(object):
          ,a.domidx_opstatus
          ,a.ityp_owner
          ,a.ityp_name
+         ,a.parameters
          FROM
          dba_indexes a
       """;
@@ -1008,9 +1051,13 @@ class Instance(object):
          INSERT INTO dba_ind_columns(
              index_owner
             ,index_name
+            ,table_owner
+            ,table_name
             ,column_name
+            ,column_position
+            ,descend
          ) VALUES (
-            ?,?,?
+            ?,?,?,?,?,?,?
          )
       """;
       
@@ -1018,7 +1065,11 @@ class Instance(object):
          SELECT
           a.index_owner
          ,a.index_name
+         ,a.table_owner
+         ,a.table_name
          ,a.column_name
+         ,a.column_position
+         ,a.descend
          FROM
          dba_ind_columns a
       """;
@@ -1038,8 +1089,10 @@ class Instance(object):
             ,tablespace_name
             ,index_name
             ,compression
+            ,partitioned
+            ,securefile
          ) VALUES (
-            ?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -1052,6 +1105,8 @@ class Instance(object):
          ,a.tablespace_name
          ,a.index_name
          ,a.compression
+         ,a.partitioned
+         ,a.securefile
          FROM
          dba_lobs a
       """;
@@ -1061,6 +1116,38 @@ class Instance(object):
       for row in fromc:
          toc.execute(str_to,row);
          
+      ## dba_varrays
+      str_to = """
+         INSERT INTO dba_varrays(
+             owner
+            ,parent_table_name
+            ,parent_table_column
+            ,type_owner
+            ,type_name
+            ,lob_name
+         ) VALUES (
+            ?,?,?,?,?,?
+         )
+      """;
+      
+      str_from = """
+         SELECT
+          a.owner
+         ,a.parent_table_name
+         ,a.parent_table_column
+         ,a.type_owner
+         ,a.type_name
+         ,a.lob_name
+         FROM
+         dba_varrays a
+      """;
+      str_from += self.dts_asof;
+      
+      fromc.execute(str_from);
+      for row in fromc:
+         toc.execute(str_to,row);
+         
+      ## Spatial
       if self._has_spatial:
          ## sdo_index_metadata_table
          str_to = """
@@ -1277,7 +1364,10 @@ class Instance(object):
           WHEN bbb.segment_type IN ('INDEX','LOBINDEX')
           THEN
             CASE 
-            WHEN ddd.compression IS NULL OR ddd.compression = 'DISABLED'
+            WHEN ddd.compression IS NULL
+            THEN
+               'NONE'
+            WHEN ddd.compression = 'DISABLED'
             THEN
                'NONE'
             WHEN ddd.compression IN ('ENABLED')
@@ -1725,7 +1815,7 @@ class Instance(object):
    ############################################################################
    def add_tablespace_group(
        self
-      ,tablespace_group_name
+      ,tablespace_group_name: str
    ):
    
       if self._tablespace_groups is None:
@@ -1739,7 +1829,7 @@ class Instance(object):
    ############################################################################
    def delete_tablespace_group(
        self
-      ,tablespace_group_name
+      ,tablespace_group_name: str
    ):
    
       if self._tablespace_groups is None:
@@ -1751,8 +1841,8 @@ class Instance(object):
    ############################################################################
    def add_schema_group(
        self
-      ,schema_group_name
-      ,ignore_tablespaces = None
+      ,schema_group_name: str
+      ,ignore_tablespaces: bool = None
    ):
    
       if self._schema_groups is None:
@@ -1771,7 +1861,7 @@ class Instance(object):
    ############################################################################
    def delete_schema_group(
        self
-      ,schema_group_name
+      ,schema_group_name: str
    ):
    
       if self._schema_groups is None:
@@ -1783,7 +1873,7 @@ class Instance(object):
    ############################################################################
    def add_resource_group(
        self
-      ,resource_group_name
+      ,resource_group_name: str
    ):
    
       if self._resource_groups is None:
@@ -1797,7 +1887,7 @@ class Instance(object):
    ############################################################################
    def delete_resource_group(
        self
-      ,resource_group_name
+      ,resource_group_name: str
    ):
    
       if self._resource_groups is None:

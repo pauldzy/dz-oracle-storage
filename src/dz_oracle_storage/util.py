@@ -2,7 +2,10 @@ import os,sys;
 import unicodedata,re;
     
 ############################################################################### 
-def slugify(value,allow_unicode=False):
+def slugify(
+    value: str
+   ,allow_unicode: bool = False
+) -> str:
    """
    Taken from https://github.com/django/django/blob/master/django/utils/text.py
    Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
@@ -29,7 +32,10 @@ def dzx(pin):
       return ",".join(f'\'{w}\'' for w in sorted(set(pin)));
    
 ############################################################################### 
-def get_env_data(path: str) -> dict:
+def get_env_data(
+   path: str
+) -> dict:
+
    rez = {};
    with open(path, 'r') as f:
       for line in f.readlines():
@@ -37,4 +43,52 @@ def get_env_data(path: str) -> dict:
          if '=' in line and not line.startswith('#'):
             a,b = line.split('=');
             rez[a] = b;
+            
+   return rez;
+
+###############################################################################
+def read_spatial_parms(
+    parms: str
+) -> {}:
+
+   rez = {};
+   if parms is None or parms == "":
       return rez;
+      
+   parms1 = parms.upper().strip();  
+   parms1 = parms1.replace('  ',' ');
+   parms1 = parms1.replace(', ',' ');
+   parms1 = parms1.replace(' = ','=');
+   parms1 = parms1.replace(' =','=');
+   parms1 = parms1.replace('= ','=');
+
+   ary  = parms1.split(' ');
+   for item in ary:
+      k,v = item.split('=');
+      rez[k] = v;
+         
+   return rez;
+   
+###############################################################################
+def write_spatial_parms(
+    parm_hash: dict
+   ,inject_parms: dict = None
+) -> str:
+
+   rez = "";
+   if parm_hash is None or len(parm_hash) == 0:
+      if inject_parms is None or len(inject_parms) == 0:
+         return None;
+      
+      else:
+         parm_hash = inject_parms
+   
+   else:
+      if inject_parms is not None and len(inject_parms) > 0:
+         for k,v in inject_parms.items():
+            parm_hash[k.upper()] = v.upper();
+
+   for k,v in parm_hash.items():
+      rez += k + '=' + v + ' ';
+      
+   return rez.strip();

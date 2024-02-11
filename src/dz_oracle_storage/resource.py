@@ -23,6 +23,7 @@ class Resource(object):
       ,bytes_comp_unk   = None
       ,partitioned      = None
       ,iot_type         = None
+      ,temporary        = None
       ,secondary        = None
       ,isgeor           = None
    ):
@@ -31,6 +32,7 @@ class Resource(object):
       self._sqliteconn      = parent._sqliteconn;
       self._table_owner     = table_owner;
       self._table_name      = table_name;
+      self._temporary       = temporary;
       self._isgeor          = isgeor;
       self._secondaries     = {};
       
@@ -55,6 +57,7 @@ class Resource(object):
             ,a.bytes_comp_unk
             ,a.partitioned
             ,a.iot_type
+            ,a.temporary
             ,a.secondary
             ,a.isgeor
             FROM
@@ -85,8 +88,9 @@ class Resource(object):
             bytes_comp_unk   = row[12];
             partitioned      = row[13];
             iot_type         = row[14];
-            secondary        = row[15];
-            isgeor           = row[16];
+            temporary        = row[15];
+            secondary        = row[16];
+            isgeor           = row[17];
 
          # Abend hard if the item does have seconday = 'N'
          if table_name is None:
@@ -96,6 +100,7 @@ class Resource(object):
       
       self._secondaries[(table_owner,table_name,partition_name)] = Secondary(
           parent_resource  = self
+         ,parent_secondary = None
          ,depth            = 0
          ,owner            = table_owner
          ,segment_name     = table_name
@@ -112,8 +117,8 @@ class Resource(object):
          ,bytes_comp_unk   = bytes_comp_unk
          ,partitioned      = partitioned
          ,iot_type         = iot_type
+         ,temporary        = temporary
          ,secondary        = secondary
-         ,secondary_above  = None
          ,isgeor           = isgeor
       );
             
@@ -132,6 +137,10 @@ class Resource(object):
       return self._table_name;
       
    @property
+   def temporary(self):
+      return self._temporary;
+      
+   @property
    def secondaries(self):
       return self._secondaries;
       
@@ -142,8 +151,8 @@ class Resource(object):
    ####
    def bytes_used(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       rez = 0;
       for item in self.secondaries.values():
          rez += item.bytes_used(igtbs);
@@ -152,15 +161,15 @@ class Resource(object):
    ####
    def gb_used(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_none(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       rez = 0;
       for item in self.secondaries.values():
          rez += item.bytes_comp_none(igtbs);
@@ -169,15 +178,15 @@ class Resource(object):
    ####
    def gb_comp_none(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_low(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       rez = 0;
       for item in self.secondaries.values():
          rez += item.bytes_comp_low(igtbs);
@@ -186,15 +195,15 @@ class Resource(object):
    ####
    def gb_comp_low(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_high(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       rez = 0;
       for item in self.secondaries.values():
          rez += item.bytes_comp_high(igtbs);
@@ -203,15 +212,15 @@ class Resource(object):
    ####
    def gb_comp_high(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
    
    ####
    def bytes_comp_unk(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       rez = 0;
       for item in self.secondaries.values():
          rez += item.bytes_comp_unk(igtbs);
@@ -220,7 +229,67 @@ class Resource(object):
    ####
    def gb_comp_unk(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
+      
+   ####
+   def generate_ddl(
+       self
+      ,recipe: str
+   ) -> list[str]:
+      rez = [];
+      rebuild_trigger = False;
+      
+      if recipe in ['HIGH']:
+         for item in self.secondaries.values():
+            if  item.segment_type == 'LOBSEGMENT'      \
+            and (                                      \
+               item._parent_secondary is None or       \
+               item._parent_secondary.secondary == 'N' \
+            ):
+               r = item.generate_ddl(
+                   recipe = recipe
+                  ,rebuild_trigger = rebuild_trigger
+               );
+               if r is not None:
+                  rebuild_trigger = True;
+                  rez = rez + r;
+      
+      if recipe in ['HIGH']:      
+         for item in self.secondaries.values():
+            
+            if  item.segment_type == 'TABLE'           \
+            and (                                      \
+               item._parent_secondary is None or       \
+               item._parent_secondary.secondary == 'N' \
+            )                                          \
+            and item.iot_type is None:
+               r = item.generate_ddl(
+                   recipe = recipe
+                  ,rebuild_trigger = rebuild_trigger
+               );
+               if r is not None:
+                  rebuild_trigger = True;
+                  rez = rez + r;
+             
+      if recipe in ['HIGH','REBUILDSPX']:
+         for item in self.secondaries.values():
+            
+            if  item.segment_type == 'INDEX'           \
+            and (                                      \
+               item._parent_secondary is None or       \
+               item._parent_secondary.secondary == 'N' \
+            )                                          \
+            and item._parent_secondary.iot_type is None:
+    
+               r = item.generate_ddl(
+                   recipe = recipe
+                  ,rebuild_trigger = rebuild_trigger
+               );
+               if r is not None:
+                  rez = rez + r;
+               
+      return rez;
+      
       

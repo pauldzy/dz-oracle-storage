@@ -8,7 +8,7 @@ class ResourceGroup(object):
    def __init__(
        self
       ,parent
-      ,resource_group_name
+      ,resource_group_name: str
    ):
    
       self._parent              = parent;
@@ -32,8 +32,8 @@ class ResourceGroup(object):
    ####
    def bytes_used(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       if igtbs is None and self._ignore_tbs is not None:
          igtbs = self._ignore_tbs;
          
@@ -45,15 +45,15 @@ class ResourceGroup(object):
    ####
    def gb_used(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_none(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       if igtbs is None and self._ignore_tbs is not None:
          igtbs = self._ignore_tbs;
          
@@ -65,15 +65,15 @@ class ResourceGroup(object):
    ####
    def gb_comp_none(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_low(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       if igtbs is None and self._ignore_tbs is not None:
          igtbs = self._ignore_tbs;
          
@@ -85,15 +85,15 @@ class ResourceGroup(object):
    ####
    def gb_comp_low(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_high(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       if igtbs is None and self._ignore_tbs is not None:
          igtbs = self._ignore_tbs;
          
@@ -105,15 +105,15 @@ class ResourceGroup(object):
    ####
    def gb_comp_high(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_unk(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       if igtbs is None and self._ignore_tbs is not None:
          igtbs = self._ignore_tbs;
          
@@ -125,15 +125,15 @@ class ResourceGroup(object):
    ####
    def gb_comp_unk(
        self
-      ,igtbs = None
-   ):
+      ,igtbs: list = None
+   ) -> float:
       return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
       
    ############################################################################
    def add_resource(
        self
-      ,table_owner
-      ,table_name
+      ,table_owner: str
+      ,table_name: str
    ):
    
       if self._resources is None:
@@ -148,8 +148,8 @@ class ResourceGroup(object):
    ############################################################################
    def delete_resource(
        self
-      ,table_owner
-      ,table_name
+      ,table_owner: str
+      ,table_name: str
    ):
    
       if self._resources is None:
@@ -161,7 +161,7 @@ class ResourceGroup(object):
    ############################################################################
    def set_ignore_tablespaces(
        self
-      ,tablespace_names
+      ,tablespace_names: list
    ):
    
       self._ignore_tbs = dzx(tablespace_name);
@@ -176,8 +176,8 @@ class ResourceGroup(object):
    ############################################################################
    def load_resources_from_schema(
        self
-      ,schema_name
-      ,exclude_types = None
+      ,schema_name: str
+      ,exclude_types: list = None
    ):
    
       if schema_name not in self._parent.schemas:
@@ -202,6 +202,7 @@ class ResourceGroup(object):
          ,a.bytes_comp_unk
          ,a.partitioned
          ,a.iot_type
+         ,a.temporary
          ,a.secondary
          ,a.isgeor
          FROM
@@ -231,8 +232,9 @@ class ResourceGroup(object):
          bytes_comp_unk   = row[12];
          partitioned      = row[13];
          iot_type         = row[14];
-         secondary        = row[15];
-         isgeor           = row[16];
+         temporary        = row[15];
+         secondary        = row[16];
+         isgeor           = row[17];
 
          self._resources[(table_owner,table_name)] = Resource(
              parent           = self
@@ -251,6 +253,7 @@ class ResourceGroup(object):
             ,bytes_comp_unk   = bytes_comp_unk
             ,partitioned      = partitioned
             ,iot_type         = iot_type
+            ,temporary        = temporary
             ,secondary        = secondary
             ,isgeor           = isgeor
          );
