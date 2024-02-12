@@ -17,6 +17,7 @@ class Tablespace(object):
       self._tablespace_name  = tablespace_name;
       self._bytes_allocated  = bytes_allocated;
       self._bytes_used       = bytes_used;
+      self._datafiles        = {};
       
       # bytes free may or may not include recyclebin
       self._bytes_free       = bytes_free;
@@ -30,79 +31,119 @@ class Tablespace(object):
    @property
    def tablespace_name(self):
       return self._tablespace_name;
+ 
+   @property
+   def datafiles(self): 
+      return self._datafiles;
+         
+   @property
+   def datafiles_l(self):
+      return [d for d in self.datafiles.values()];
       
    ####
-   def bytes_allocated(self):
+   def bytes_allocated(
+      self
+   ) -> float:
       return self._bytes_allocated;
       
    ####
-   def gb_allocated(self):
+   def gb_allocated(
+      self
+   ) -> float:
       return self.bytes_allocated() / 1024 / 1024 / 1024;
    
    ####
-   def bytes_used(self):
+   def bytes_used(
+      self
+   ) -> float:
       return self._bytes_used;
       
    ####
-   def gb_used(self):
+   def gb_used(
+      self
+   ) -> float:
       return self.bytes_used() / 1024 / 1024 / 1024;
 
    ####
-   def bytes_free(self):
+   def bytes_free(
+      self
+   ) -> float:
       return self._bytes_free;
    
    ####
-   def gb_free(self):
+   def gb_free(
+      self
+   ) -> float:
       return self.bytes_free() / 1024 / 1024 / 1024;
       
    ####
-   def bytes_recyclebin(self):
+   def bytes_recyclebin(
+      self
+   ) -> float:
       if self._bytes_recyclebin is None:
          self._bytes_recyclebin = 0;
       return self._bytes_recyclebin;
    
    ####
-   def gb_recyclebin(self):
+   def gb_recyclebin(
+      self
+   ) -> float:
       return self.bytes_recyclebin() / 1024 / 1024 / 1024;
       
    ####
-   def bytes_comp_none(self):
+   def bytes_comp_none(
+      self
+   ) -> float:
       if self._bytes_comp_none is None:
          self.get_segment_size();
       return self._bytes_comp_none;
       
    ####
-   def gb_comp_none(self):
+   def gb_comp_none(
+      self
+   ) -> float:
       return self.bytes_comp_none() / 1024 / 1024 / 1024;
       
    ####
-   def bytes_comp_low(self):
+   def bytes_comp_low(
+      self
+   ) -> float:
       if self._bytes_comp_low is None:
          self.get_segment_size();
       return self._bytes_comp_low;
       
    ####
-   def gb_comp_low(self):
+   def gb_comp_low(
+      self
+   ) -> float:
       return self.bytes_comp_low() / 1024 / 1024 / 1024;
       
    ####
-   def bytes_comp_high(self):
+   def bytes_comp_high(
+      self
+   ) -> float:
       if self._bytes_comp_high is None:
          self.get_segment_size();
       return self._bytes_comp_high;
       
    ####
-   def gb_comp_high(self):
+   def gb_comp_high(
+      self
+   ) -> float:
       return self.bytes_comp_high() / 1024 / 1024 / 1024;
       
    ####
-   def bytes_comp_unk(self):
+   def bytes_comp_unk(
+      self
+   ) -> float:
       if self._bytes_comp_unk is None:
          self.get_segment_size();
       return self._bytes_comp_unk;
       
    ####
-   def gb_comp_unk(self):
+   def gb_comp_unk(
+      self
+   ) -> float:
       return self.bytes_comp_unk() / 1024 / 1024 / 1024;
       
    ############################################################################

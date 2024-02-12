@@ -34,14 +34,12 @@ class Schema(object):
    def bytes_used(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       if dzx(igtbs) is not None:
          if dzx(igtbs) not in self._ignore_tbs_results:
             self.reharvest_with_ignore(dzx(igtbs));
 
-         return float(
-            self._ignore_tbs_results[dzx(igtbs)]['bytes_used']
-         );
+         return self._ignore_tbs_results[dzx(igtbs)]['bytes_used'];
          
       return self._bytes_used;
       
@@ -49,21 +47,19 @@ class Schema(object):
    def gb_used(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       return self.bytes_used(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_none(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       if dzx(igtbs) is not None:
          if dzx(igtbs) not in self._ignore_tbs_results:
             self.reharvest_with_ignore(dzx(igtbs));
 
-         return float(
-            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_none']
-         );
+         return self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_none'];
          
       return self._bytes_comp_none;
       
@@ -71,21 +67,19 @@ class Schema(object):
    def gb_comp_none(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       return self.bytes_comp_none(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_low(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       if dzx(igtbs) is not None:
          if dzx(igtbs) not in self._ignore_tbs_results:
             self.reharvest_with_ignore(dzx(igtbs));
 
-         return float(
-            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_low']
-         );
+         return self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_low'];
          
       return self._bytes_comp_low;
       
@@ -93,21 +87,19 @@ class Schema(object):
    def gb_comp_low(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       return self.bytes_comp_low(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_high(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       if dzx(igtbs) is not None:
          if dzx(igtbs) not in self._ignore_tbs_results:
             self.reharvest_with_ignore(dzx(igtbs));
 
-         return float(
-            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_high']
-         );
+         return self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_high'];
          
       return self._bytes_comp_high;
       
@@ -115,21 +107,19 @@ class Schema(object):
    def gb_comp_high(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       return self.bytes_comp_high(igtbs) / 1024 / 1024 / 1024;
       
    ####
    def bytes_comp_unk(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       if dzx(igtbs) is not None:
          if dzx(igtbs) not in self._ignore_tbs_results:
             self.reharvest_with_ignore(dzx(igtbs));
 
-         return float(
-            self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_unk']
-         );
+         return self._ignore_tbs_results[dzx(igtbs)]['bytes_comp_unk'];
          
       return self._bytes_comp_unk;
       
@@ -137,7 +127,7 @@ class Schema(object):
    def gb_comp_unk(
        self
       ,igtbs = None
-   ):
+   ) -> float:
       return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
      
    ############################################################################

@@ -10,8 +10,9 @@ class Datafile(object):
       ,file_id
       ,tablespace_name
       ,bytes_allocated
+      ,bytes_used
       ,bytes_free
-      ,bytes_largest
+      ,max_free_bytes
       ,extents_hmw   = None
       ,db_block_size = None
    ):
@@ -21,8 +22,9 @@ class Datafile(object):
       self._file_id            = file_id;
       self._tablespace_name    = tablespace_name;
       self._bytes_allocated    = bytes_allocated;
+      self._bytes_used         = bytes_used;
       self._bytes_free         = bytes_free;
-      self._bytes_largest      = bytes_largest;
+      self._max_free_bytes     = max_free_bytes;
       self._extents_hmw        = extents_hmw;
       self._db_block_size      = db_block_size;
       
@@ -54,7 +56,7 @@ class Datafile(object):
    def bytes_used(
       self
    ) -> float:
-      return self._bytes_allocated - self._bytes_free;
+      return self._bytes_used;
       
    ####
    def gb_used(
@@ -66,7 +68,7 @@ class Datafile(object):
    def bytes_free(
       self
    ) -> float:
-      return self._bytes_allocated - (self._bytes_allocated - self._bytes_free);
+      return self._bytes_free;
    
    ####
    def gb_free(

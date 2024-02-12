@@ -68,21 +68,20 @@ class Instance(object):
             print("== will extract and load fresh information from oracle. ==",file=sys.stderr);
             print("== this flag is only intended for debugging purposes. ==",file=sys.stderr);
          
-         self.initorcl();
-         self.deletesqlite();
-         self.initsqlite();     
-         self.loadorcl();
-      
-      self._bytes_allocated   = None;
-      self._bytes_used        = None;
-      self._bytes_free        = None;
-      self._bytes_recyclebin  = None;
-      
+         self.init_orcl();
+         self.delete_sqlite();
+         self.init_sqlite();     
+         self.load_orcl();
+
+      self._datafiles         = {};
       self._tablespaces       = {};
       self._tablespace_groups = {};
       self._schemas           = {};
       self._schema_groups     = {};
       self._resource_groups   = {};
+      
+      self.load_dfs_tbs();
+      self.load_schemas();
       
    @property
    def name(self):
@@ -152,52 +151,135 @@ class Instance(object):
       self._hoststring = value;
    
    ####
-   def bytes_allocated(self):
-      if self._bytes_allocated is None:
-         self.loadinstancetotals();
-      return self._bytes_allocated;
+   def bytes_allocated(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self._datafiles.values():
+         rez += item.bytes_allocated();
+      return rez;
       
    ####
-   def gb_allocated(self):
+   def gb_allocated(
+      self
+   ) -> float:
       return self.bytes_allocated() / 1024 / 1024 / 1024;
    
    ####
-   def bytes_used(self):
-      if self._bytes_used is None:
-         self.loadinstancetotals();
-      return self._bytes_used;
+   def bytes_used(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self._datafiles.values():
+         rez += item.bytes_used();
+      return rez;
       
    ####
-   def gb_used(self):
+   def gb_used(
+      self
+   ) -> float:
       return self.bytes_used() / 1024 / 1024 / 1024;
 
    ####
-   def bytes_free(self):
-      if self._bytes_free is None:
-         self.loadinstancetotals();
-      return self._bytes_free;
+   def bytes_free(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self._datafiles.values():
+         rez += item.bytes_free();
+      return rez;
    
    ####
-   def gb_free(self):
+   def gb_free(
+      self
+   ) -> float:
       return self.bytes_free() / 1024 / 1024 / 1024;
       
    ####
-   def bytes_recyclebin(self):
-      if self._bytes_recyclebin is None:
-         val = 0;
-         for item in self.tablespaces_l:
-            val += item.bytes_recyclebin();
-         self._bytes_recyclebin = val;
-      return self._bytes_recyclebin;
+   def bytes_recyclebin(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self.tablespaces_l:
+         rez += item.bytes_recyclebin();         
+      return rez;
    
    ####
-   def gb_recyclebin(self):
+   def gb_recyclebin(
+      self
+   ) -> float:
       return self.bytes_recyclebin() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_none(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self.schemas_l:
+         rez += item.bytes_comp_none();         
+      return rez;
+   
+   ####
+   def gb_comp_none(
+      self
+   ) -> float:
+      return self.bytes_comp_none() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_low(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self.schemas_l:
+         rez += item.bytes_comp_low();         
+      return rez;
+   
+   ####
+   def gb_comp_low(
+      self
+   ) -> float:
+      return self.bytes_comp_low() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_comp_high(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self.schemas_l:
+         rez += item.bytes_comp_high();         
+      return rez;
+   
+   ####
+   def gb_comp_high(
+      self
+   ) -> float:
+      return self.bytes_comp_high() / 1024 / 1024 / 1024;
+        
+   ####
+   def bytes_comp_unk(
+      self
+   ) -> float:
+      rez = 0;
+      for item in self.schemas_l:
+         rez += item.bytes_comp_unk();         
+      return rez;
+   
+   ####
+   def gb_comp_unk(
+      self
+   ) -> float:
+      return self.bytes_comp_unk() / 1024 / 1024 / 1024;
+      
+   @property
+   def datafiles(self): 
+      return self._datafiles;
+         
+   @property
+   def datafiles_l(self):
+      return [d for d in self.datafiles.values()];
       
    @property
    def tablespaces(self): 
-      if self._tablespaces is None or self._tablespaces == {}:
-         self.loadtablespaces();
       return self._tablespaces;
          
    @property
@@ -210,8 +292,6 @@ class Instance(object):
       
    @property
    def tablespace_groups(self): 
-      if self._tablespace_groups is None:
-         self._tablespace_groups = {};
       return self._tablespace_groups;
          
    @property
@@ -220,8 +300,6 @@ class Instance(object):
       
    @property
    def schemas(self): 
-      if self._schemas is None or self._schemas == {}:
-         self.loadschemas();
       return self._schemas;
          
    @property
@@ -230,8 +308,6 @@ class Instance(object):
       
    @property
    def schema_groups(self): 
-      if self._schema_groups is None:
-         self._schema_groups = {};
       return self._schema_groups;
          
    @property
@@ -240,8 +316,6 @@ class Instance(object):
       
    @property
    def resource_groups(self): 
-      if self._resource_groups is None:
-         self.resource_groups = {};
       return self._resource_groups;
          
    @property
@@ -249,7 +323,7 @@ class Instance(object):
       return [d for d in self.resource_groups.values()];
       
    ############################################################################
-   def initorcl(self):
+   def init_orcl(self):
    
       try:
          self._orcl = cx_Oracle.connect( 
@@ -345,13 +419,13 @@ class Instance(object):
       curs.close();
 
    ############################################################################
-   def deletesqlite(self):
+   def delete_sqlite(self):
    
       if os.path.exists(self._sqlitepath):
          os.remove(self._sqlitepath);
    
    ############################################################################
-   def initsqlite(self):
+   def init_sqlite(self):
    
       if os.path.exists(self._sqlitepath):
          raise Exception("sqlite db already exists");
@@ -362,16 +436,19 @@ class Instance(object):
       
       c.executescript("""
          
+         /* dba_tablespaces */
          CREATE TABLE dba_tablespaces(
              tablespace_name  TEXT    NOT NULL
             ,PRIMARY KEY(tablespace_name)
          );
          
+         /* dba_users */
          CREATE TABLE dba_users(
              username         TEXT    NOT NULL
             ,PRIMARY KEY(username)
          );
 
+         /* dba_free_space */
          CREATE TABLE dba_free_space(
              tablespace_name  TEXT    NOT NULL
             ,file_id          INTEGER NOT NULL
@@ -384,6 +461,7 @@ class Instance(object):
              tablespace_name
          );
          
+         /* dba_data_files */
          CREATE TABLE dba_data_files(
              file_name        TEXT    NOT NULL
             ,file_id          INTEGER NOT NULL
@@ -403,6 +481,7 @@ class Instance(object):
              tablespace_name
          );
          
+         /* dba_recyclebin */
          CREATE TABLE dba_recyclebin(
              owner            TEXT    NOT NULL
             ,object_name      TEXT    NOT NULL
@@ -417,6 +496,7 @@ class Instance(object):
              ts_name
          );
          
+         /* dba_segments */
          CREATE TABLE dba_segments(
              owner            TEXT    NOT NULL
             ,segment_name     TEXT    NOT NULL
@@ -437,6 +517,43 @@ class Instance(object):
              segment_type
          );
          
+         /* dba_extents */
+         CREATE TABLE dba_extents(
+             owner            TEXT    NOT NULL
+            ,segment_name     TEXT    NOT NULL
+            ,partition_name   TEXT
+            ,segment_type     TEXT    NOT NULL
+            ,tablespace_name  TEXT    NOT NULL
+            ,extent_id        INTEGER NOT NULL
+            ,file_id          INTEGER NOT NULL
+            ,block_id         INTEGER NOT NULL
+            ,bytes            NUMERIC NOT NULL
+            ,blocks           NUMERIC NOT NULL
+            ,PRIMARY KEY(owner,segment_name,partition_name,segment_type,tablespace_name,extent_id)
+         );
+         CREATE INDEX dba_extents_i01 ON dba_extents(
+             owner
+            ,segment_name
+         );
+         CREATE INDEX dba_extents_i02 ON dba_extents(
+             owner
+            ,segment_name
+            ,partition_name 
+         );
+         CREATE INDEX dba_extents_i03 ON dba_extents(
+             segment_type
+         );
+         CREATE INDEX dba_extents_i04 ON dba_extents(
+             tablespace_name
+         );
+         CREATE INDEX dba_extents_i05 ON dba_extents(
+             extent_id
+         );
+         CREATE INDEX dba_extents_i06 ON dba_extents(
+             file_id
+         );
+         
+         /* dba_tables */
          CREATE TABLE dba_tables(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -460,6 +577,7 @@ class Instance(object):
              compress_for
          );
          
+         /* dba_tab_partitions */
          CREATE TABLE dba_tab_partitions(
              table_owner      TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -480,6 +598,7 @@ class Instance(object):
              compress_for
          );
          
+         /* dba_tab_columns */
          CREATE TABLE dba_tab_columns(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -633,6 +752,7 @@ class Instance(object):
             ,PRIMARY KEY(owner,table_name)
          );
          
+         /* sde_dbtune */
          CREATE TABLE sde_dbtune(
              parameter_name   TEXT    NOT NULL
             ,keyword          TEXT    NOT NULL
@@ -640,6 +760,7 @@ class Instance(object):
             ,PRIMARY KEY(parameter_name,keyword)
          );
          
+         /* sde_st_geometry_index */
          CREATE TABLE sde_st_geometry_index(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -656,6 +777,7 @@ class Instance(object):
             ,index_name
          );
          
+         /* segments_compression */
          CREATE TABLE segments_compression(
              owner            TEXT    NOT NULL
             ,segment_name     TEXT    NOT NULL
@@ -692,6 +814,7 @@ class Instance(object):
              isgeor
          );
 
+         /* resource_eligible */
          CREATE VIEW resource_eligible(
              owner
             ,table_name
@@ -760,7 +883,7 @@ class Instance(object):
       c.close();
       
    ############################################################################
-   def loadorcl(self):
+   def load_orcl(self):
       
       toc   = self._sqliteconn.cursor();
       fromc = self._orcl.cursor();
@@ -912,6 +1035,46 @@ class Instance(object):
       fromc.execute(str_from);
       for row in fromc:
          toc.execute(str_to,row);
+         
+      if self._harvest_extents:
+      
+         str_to = """
+            INSERT INTO dba_extents(
+                owner
+               ,segment_name
+               ,partition_name
+               ,segment_type
+               ,tablespace_name
+               ,extent_id
+               ,file_id
+               ,block_id
+               ,bytes
+               ,blocks
+            ) VALUES (
+               ?,?,?,?,?,?,?,?,?,?
+            )
+         """;
+         
+         str_from  = """
+            SELECT
+             a.owner
+            ,a.segment_name
+            ,a.partition_name
+            ,a.segment_type
+            ,a.tablespace_name
+            ,a.extent_id
+            ,a.file_id
+            ,a.block_id
+            ,a.bytes
+            ,a.blocks
+            FROM
+            dba_extents a
+         """;
+         str_from += self.dts_asof;
+         
+         fromc.execute(str_from);
+         for row in fromc:
+            toc.execute(str_to,row);
 
       ## dba_recyclebin
       str_to = """
@@ -1600,188 +1763,150 @@ class Instance(object):
       toc.close();
       
    ############################################################################
-   def loadinstancetotals(self):
+   def load_dfs_tbs(self):
    
       curs = self._sqliteconn.cursor();
       
       str_sql = """
          SELECT
-          SUM(a.bytes_alloc)                                           AS bytes_allocated
-         ,SUM(a.bytes_alloc - a.bytes_free)                            AS bytes_used
-         ,SUM(a.bytes_alloc - (a.bytes_alloc - a.bytes_free))          AS bytes_free
-         FROM (  
+          a.file_name
+         ,a.file_id
+         ,a.tablespace_name
+         /* ------ ------ ------ */
+         ,a.user_bytes AS bytes_allocated
+         /* ------ ------ ------ */
+         ,CASE
+          WHEN b.sum_free_bytes IS NULL
+          THEN
+            a.user_bytes
+          ELSE
+            a.user_bytes - b.sum_free_bytes
+          END AS bytes_used
+         /* ------ ------ ------ */
+         ,CASE
+          WHEN b.sum_free_bytes IS NULL
+          THEN
+            0
+          ELSE
+            a.user_bytes - (a.user_bytes - b.sum_free_bytes)
+          END AS bytes_free
+         /* ------ ------ ------ */
+         ,b.max_free_bytes
+         /* ------ ------ ------ */
+         ,a.extents_hmw 
+         ,a.db_block_size
+         FROM 
+         dba_data_files a
+         LEFT JOIN (
             SELECT
-             CASE 
-             WHEN bb.tablespace_name IS NULL
-             THEN
-               CASE
-               WHEN aa.tablespace_name IS NULL
-               THEN
-                  'UNKNOWN'
-               ELSE
-                  aa.tablespace_name
-               END
-             ELSE
-               bb.tablespace_name
-             END AS tablespace_name
-            ,CASE
-             WHEN aa.bytes_free IS NULL
-             THEN
-               0
-             ELSE
-               aa.bytes_free
-             END AS bytes_free
-            ,bb.bytes_alloc
-            ,bb.data_files
-            FROM (
-               SELECT
-                aaa.tablespace_name
-               ,SUM(aaa.bytes) AS bytes_free
-               ,MAX(aaa.bytes) AS bytes_largest
-               FROM
-               dba_free_space aaa
-               GROUP BY
-               aaa.tablespace_name
-            ) aa
-            RIGHT JOIN (
-               SELECT
-                bbb.tablespace_name
-               ,SUM(bbb.user_bytes) AS bytes_alloc
-               ,COUNT(*) AS data_files
-               FROM
-               dba_data_files bbb
-               GROUP BY
-               bbb.tablespace_name
-            ) bb
-            ON
-            aa.tablespace_name = bb.tablespace_name
-         ) a
-      """;
-   
-      curs.execute(str_sql);
-      for row in curs:
-         self._bytes_allocated = row[0];
-         self._bytes_used      = row[1];
-         self._bytes_free      = row[2];
-         
-      curs.close();
-            
-   ############################################################################
-   def loadtablespaces(self):
-   
-      curs = self._sqliteconn.cursor();
-   
-      str_sql = """
-         SELECT
-          a.tablespace_name
-         ,a.bytes_alloc                                           AS bytes_allocated
-         ,a.bytes_alloc - a.bytes_free                            AS bytes_used
-         ,a.bytes_alloc - (a.bytes_alloc - a.bytes_free)          AS bytes_free
-         ,ROUND((a.bytes_alloc - a.bytes_free) / a.bytes_alloc,5) AS bytes_free_perc
-         FROM (  
-            SELECT
-             CASE 
-             WHEN bb.tablespace_name IS NULL
-             THEN
-               CASE
-               WHEN aa.tablespace_name IS NULL
-               THEN
-                  'UNKNOWN'
-               ELSE
-                  aa.tablespace_name
-               END
-             ELSE
-               bb.tablespace_name
-             END AS tablespace_name
-            ,CASE
-             WHEN aa.bytes_free IS NULL
-             THEN
-               0
-             ELSE
-               aa.bytes_free
-             END AS bytes_free
-            ,bb.bytes_alloc
-            ,bb.data_files
-            FROM (
-               SELECT
-                aaa.tablespace_name
-               ,SUM(aaa.bytes) AS bytes_free
-               ,MAX(aaa.bytes) AS bytes_largest
-               FROM
-               dba_free_space aaa
-               GROUP BY
-               aaa.tablespace_name
-            ) aa
-            RIGHT JOIN (
-               SELECT
-                bbb.tablespace_name
-               ,SUM(bbb.user_bytes) AS bytes_alloc
-               ,COUNT(*) AS data_files
-               FROM
-               dba_data_files bbb
-               GROUP BY
-               bbb.tablespace_name
-            ) bb
-            ON
-            aa.tablespace_name = bb.tablespace_name
-         ) a
+             bb.file_id
+            ,SUM(bb.bytes) AS sum_free_bytes
+            ,MAX(bb.bytes) AS max_free_bytes
+            FROM
+            dba_free_space bb
+            GROUP BY
+            bb.file_id
+         ) b
+         ON
+         a.file_id = b.file_id 
       """;
       
-      self._tablespaces = {};
+      self._datafiles = {};
       
       curs.execute(str_sql);
       for row in curs:
-         tablespace_name = row[0];
-         bytes_allocated = row[1];
-         bytes_used      = row[2];
-         bytes_free      = row[3];
+         file_name       = row[0];
+         file_id         = row[1];
+         tablespace_name = row[2];
+         bytes_allocated = row[3];
+         bytes_used      = row[4];
+         bytes_free      = row[5];
+         max_free_bytes  = row[6];
+         extents_hmw     = row[7];
+         db_block_size   = row[8];
       
-         self._tablespaces[tablespace_name] = Tablespace(
+         self._datafiles[file_id] = Datafile(
              parent          = self
+            ,file_name       = file_name
+            ,file_id         = file_id
             ,tablespace_name = tablespace_name
             ,bytes_allocated = bytes_allocated
-            ,bytes_used      = bytes_used
+            ,bytes_used      = bytes_used 
             ,bytes_free      = bytes_free
+            ,max_free_bytes  = max_free_bytes
+            ,extents_hmw     = extents_hmw
+            ,db_block_size   = db_block_size
+         );
+
+      self._tablespaces = {};
+      
+      for k,v in self._datafiles.items():
+      
+         if v.tablespace_name not in self._tablespaces:
+            self._tablespaces[v.tablespace_name] = Tablespace(
+                parent          = self
+               ,tablespace_name = v.tablespace_name
+               ,bytes_allocated = v.bytes_allocated()
+               ,bytes_used      = v.bytes_used()
+               ,bytes_free      = v.bytes_free()
+            );
+            self._tablespaces[v.tablespace_name]._datafile_count = 1;
+            
+         else:
+            self._tablespaces[v.tablespace_name]._bytes_allocated += v.bytes_allocated();
+            self._tablespaces[v.tablespace_name]._bytes_used      += v.bytes_used();
+            self._tablespaces[v.tablespace_name]._bytes_free      += v.bytes_free();
+            self._tablespaces[v.tablespace_name]._datafile_count  += 1;
+  
+      for k,v in self._tablespaces.items():
+      
+         str_sql = """
+            SELECT
+            SUM(b.bytes) AS bytes_recyclebin
+            FROM (
+               SELECT
+                aa.owner
+               ,aa.object_name
+               ,aa.ts_name
+               FROM
+               dba_recyclebin aa
+               WHERE
+               aa.ts_name IS NOT NULL
+               GROUP BY
+                aa.owner
+               ,aa.object_name
+               ,aa.ts_name
+            ) a
+            JOIN
+            dba_segments b
+            ON
+                a.owner       = b.owner
+            AND a.object_name = b.segment_name
+            WHERE
+            a.ts_name = :p01
+            GROUP BY
+            a.ts_name
+         """;
+         
+         curs.execute(
+             str_sql
+            ,{'p01':k}
          );
          
-      str_sql = """
-         SELECT
-          a.ts_name    AS tablespace_name
-         ,SUM(b.bytes) AS bytes_recyclebin
-         FROM (
-            SELECT
-             aa.owner
-            ,aa.object_name
-            ,aa.ts_name
-            FROM
-            dba_recyclebin aa
-            WHERE
-            aa.ts_name IS NOT NULL
-            GROUP BY
-             aa.owner
-            ,aa.object_name
-            ,aa.ts_name
-         ) a
-         JOIN
-         dba_segments b
-         ON
-             a.owner       = b.owner
-         AND a.object_name = b.segment_name
-         GROUP BY
-         a.ts_name
-      """;
-      
-      curs.execute(str_sql);
-      for row in curs:
-         tablespace_name  = row[0];
-         bytes_recyclebin = row[1];
+         bytes_recyclebin = 0;
+         for row in curs:
+            bytes_recyclebin = row[0];
+            
+         self._tablespaces[k]._bytes_recyclebin = bytes_recyclebin;
          
-         self._tablespaces[tablespace_name]._bytes_recyclebin = bytes_recyclebin;
+         for k1,v1 in self._datafiles.items():
+            if v1.tablespace_name == k:
+               v._datafiles[k1] = v1;
          
       curs.close();
       
    ############################################################################
-   def loadschemas(self):
+   def load_schemas(self):
    
       curs = self._sqliteconn.cursor();
    
