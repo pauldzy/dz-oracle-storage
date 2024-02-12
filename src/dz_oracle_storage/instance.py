@@ -3,6 +3,7 @@ import sqlite3,cx_Oracle;
 
 from .util import slugify;
 from .tablespace import Tablespace;
+from .datafile import Datafile;
 from .tablespacegroup import TablespaceGroup;
 from .schema import Schema;
 from .schemagroup import SchemaGroup
@@ -21,6 +22,7 @@ class Instance(object):
       ,sqlite_location: str  = None
       ,use_flashback: bool   = False
       ,use_existing_db: bool = False
+      ,harvest_extents: bool = False
    ):
    
       self._name            = name;
@@ -30,6 +32,7 @@ class Instance(object):
       self._sqlite_location = sqlite_location;
       self._use_flashback   = use_flashback;
       self._use_existing_db = use_existing_db
+      self._harvest_extents = harvest_extents;
       
       self._dts             = None;
       self._dts_s           = None;
@@ -373,18 +376,28 @@ class Instance(object):
              tablespace_name  TEXT    NOT NULL
             ,file_id          INTEGER NOT NULL
             ,block_id         INTEGER NOT NULL
-            ,bytes            NUMERIC NOT NULL
-            ,PRIMARY KEY(tablespace_name,file_id,block_id)
+            ,bytes            NUMERIC
+            ,blocks           NUMERIC
+            ,PRIMARY KEY(file_id,block_id)
          );
          CREATE INDEX dba_free_space_i01 ON dba_free_space(
              tablespace_name
          );
          
          CREATE TABLE dba_data_files(
-             tablespace_name  TEXT    NOT NULL
+             file_name        TEXT    NOT NULL
             ,file_id          INTEGER NOT NULL
-            ,user_bytes       NUMERIC NOT NULL
-            ,PRIMARY KEY(tablespace_name,file_id)
+            ,tablespace_name  TEXT   
+            ,bytes            NUMERIC
+            ,blocks           NUMERIC
+            ,maxbytes         NUMERIC
+            ,maxblocks        NUMERIC
+            ,status           TEXT
+            ,user_bytes       NUMERIC
+            ,user_blocks      NUMERIC
+            ,extents_hmw      NUMERIC
+            ,db_block_size    NUMERIC
+            ,PRIMARY KEY(file_id)
          );
          CREATE INDEX dba_data_files_i01 ON dba_data_files(
              tablespace_name
@@ -801,8 +814,9 @@ class Instance(object):
             ,file_id
             ,block_id
             ,bytes
+            ,blocks
          ) VALUES (
-            ?,?,?,?
+            ?,?,?,?,?
          )
       """;
       
@@ -812,6 +826,7 @@ class Instance(object):
          ,a.file_id
          ,a.block_id
          ,a.bytes
+         ,a.blocks
          FROM
          dba_free_space a
       """;
@@ -824,22 +839,74 @@ class Instance(object):
       ## dba_data_files
       str_to = """
          INSERT INTO dba_data_files(
-             tablespace_name
+             file_name
             ,file_id
+            ,tablespace_name
+            ,bytes
+            ,blocks
+            ,maxbytes
+            ,maxblocks
+            ,status
             ,user_bytes
+            ,user_blocks
+            ,extents_hmw
+            ,db_block_size
          ) VALUES (
-            ?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?,?
          )
       """;
       
       str_from = """
          SELECT
-          a.tablespace_name
+          a.file_name
          ,a.file_id
+         ,a.tablespace_name
+         ,a.bytes
+         ,a.blocks
+         ,a.maxbytes
+         ,a.maxblocks
+         ,a.status
          ,a.user_bytes
-         FROM
-         dba_data_files a
+         ,a.user_blocks
       """;
+      
+      if self._harvest_extents:
+         str_from += """
+         ,b.extents_hmw 
+         """;
+      else:
+         str_from += """
+         ,NULL
+         """;
+      
+      str_from += """   
+         ,(
+            SELECT 
+            b.value 
+            FROM 
+            v$parameter b
+            WHERE 
+            UPPER(b.name) = 'DB_BLOCK_SIZE'
+          ) AS db_block_size
+         FROM
+         dba_data_files a  
+      """;
+      
+      if self._harvest_extents:
+         str_from += """
+         LEFT JOIN (
+            SELECT 
+             bb.file_id
+            ,MAX(bb.block_id + bb.BLOCKS - 1) AS extents_hmw 
+            FROM 
+            dba_extents bb
+            GROUP BY 
+            bb.file_id 
+         ) b
+         ON 
+         a.file_id = b.file_id
+         """;
+      
       str_from += self.dts_asof;
       
       fromc.execute(str_from);
