@@ -131,6 +131,10 @@ class Instance(object):
       return self._has_sde;
       
    @property
+   def harvest_extents(self):
+      return self._harvest_extents;
+      
+   @property
    def dbpath(self):
       return self._dbpath;
       

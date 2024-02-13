@@ -237,9 +237,13 @@ class Resource(object):
    def generate_ddl(
        self
       ,recipe: str
+      ,rebuild_spatial: bool = False
    ) -> list[str]:
       rez = [];
-      rebuild_trigger = False;
+      rebuild_indx_flg = False;
+      
+      if recipe in ['REBUILDSPX']:
+         rebuild_spatial = True;
       
       if recipe in ['HIGH']:
          for item in self.secondaries.values():
@@ -250,10 +254,11 @@ class Resource(object):
             ):
                r = item.generate_ddl(
                    recipe = recipe
-                  ,rebuild_trigger = rebuild_trigger
+                  ,rebuild_indx_flg = rebuild_indx_flg
+                  ,rebuild_spatial  = rebuild_spatial
                );
                if r is not None:
-                  rebuild_trigger = True;
+                  rebuild_indx_flg = True;
                   rez = rez + r;
       
       if recipe in ['HIGH']:      
@@ -267,10 +272,11 @@ class Resource(object):
             and item.iot_type is None:
                r = item.generate_ddl(
                    recipe = recipe
-                  ,rebuild_trigger = rebuild_trigger
+                  ,rebuild_indx_flg = rebuild_indx_flg
+                  ,rebuild_spatial  = rebuild_spatial
                );
                if r is not None:
-                  rebuild_trigger = True;
+                  rebuild_indx_flg = True;
                   rez = rez + r;
              
       if recipe in ['HIGH','REBUILDSPX']:
@@ -285,7 +291,8 @@ class Resource(object):
     
                r = item.generate_ddl(
                    recipe = recipe
-                  ,rebuild_trigger = rebuild_trigger
+                  ,rebuild_indx_flg = rebuild_indx_flg
+                  ,rebuild_spatial  = rebuild_spatial
                );
                if r is not None:
                   rez = rez + r;

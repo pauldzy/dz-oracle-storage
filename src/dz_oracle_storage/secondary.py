@@ -893,6 +893,10 @@ class Secondary(object):
       return self._temporary;
       
    @property
+   def isgeor(self):
+      return self._isgeor;
+      
+   @property
    def secondary(self):
       return self._secondary;
    
@@ -994,12 +998,18 @@ class Secondary(object):
    def generate_ddl(
        self
       ,recipe: str
-      ,rebuild_trigger: bool = False
+      ,rebuild_indx_flg: bool = False
+      ,rebuild_spatial: bool = False
    ) -> list[str]:
    
       if recipe == 'HIGH':
       
-         if self.segment_type == 'LOBSEGMENT' and self.compression != 'HIGH' \
+         if self.isgeor is not None or \
+         (self._parent_secondary is not None and self._parent_secondary.isgeor is not None):
+            # Pass on all compression for georaster managed items
+            None;
+      
+         elif self.segment_type == 'LOBSEGMENT' and self.compression != 'HIGH' \
          and (self._parent_secondary is None or self._parent_secondary.secondary == 'N'):
       
             if self.lob_varray_name is not None:
@@ -1014,11 +1024,25 @@ class Secondary(object):
                   + 'STORE AS SECUREFILE(COMPRESS HIGH);';
                return [rez];
                
-         elif self.segment_type == 'TABLE' and self.compression != 'HIGH' \
-         and (self._parent_secondary is None or self._parent_secondary.secondary == 'N'):
-            rez = 'ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
-               + 'MOVE COMPRESS FOR OLTP;';
-            return [rez];
+         elif self.segment_type == 'TABLE' and self.compression != 'HIGH':
+            
+            if self._parent_secondary is not None:
+               if self._parent_secondary.isgeor is not None:
+                  None;
+               
+               elif self._parent_secondary.secondary == 'N':
+                  rez = [];
+                  
+                  rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
+                     + 'MOVE COMPRESS FOR OLTP;');            
+                  return rez;
+                  
+            else:
+               rez = [];
+                  
+               rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
+                  + 'MOVE COMPRESS FOR OLTP;');            
+               return rez;
                
          elif self.segment_type == 'INDEX' and self.compression != 'HIGH' \
          and self.index_type != 'BITMAP' \
@@ -1031,10 +1055,24 @@ class Secondary(object):
                       read_spatial_parms(self.index_parameters)
                      ,{'SECUREFILE':'TRUE','COMPRESSION':'HIGH'}
                   );
+                  if prms is not None and len(prms) > 0:
+                     prms = 'PARAMETERS (\'' + prms + '\')';
+                  else:
+                     prms = "";
                   
-                  rez = 'ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                     + 'REBUILD PARAMETERS(\'' + prms + '\');';
-                  return [rez];                     
+                  rez = [];
+                  if rebuild_spatial:
+                     rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
+                     rez.append('CREATE INDEX ' + self.owner + '.' + self.segment_name + ' ' \
+                        + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
+                        + '(' + self.index_columns + ') '                                    \
+                        + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
+                  
+                  else:
+                     rez.append('ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
+                        + 'REBUILD PARAMETERS(\'' + prms + '\');');
+                  
+                  return rez;                     
                
             else:
                rez = 'ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
@@ -1062,7 +1100,7 @@ class Secondary(object):
                + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
             return rez;               
       
-      if rebuild_trigger:
+      if rebuild_indx_flg:
          
          if self.segment_type == 'INDEX':
          
@@ -1070,10 +1108,24 @@ class Secondary(object):
                prms = write_spatial_parms(
                    read_spatial_parms(self.index_parameters)
                );
+               if prms is not None and len(prms) > 0:
+                  prms = 'PARAMETERS (\'' + prms + '\')';
+               else:
+                  prms = "";
                
-               rez = 'ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                  + 'REBUILD PARAMETERS(\'' + prms + '\');';
-               return [rez];
+               rez = [];
+               if rebuild_spatial:
+                  rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
+                  rez.append('CREATE INDEX ' + self.owner + '.' + self.segment_name + ' ' \
+                     + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
+                     + '(' + self.index_columns + ') '                                    \
+                     + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
+               
+               else:
+                  rez.append('ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
+                     + 'REBUILD PARAMETERS(\'' + prms + '\');');
+               
+               return rez;
                      
             else:
                rez = 'ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
