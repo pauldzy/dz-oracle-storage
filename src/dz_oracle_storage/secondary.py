@@ -38,6 +38,7 @@ class Secondary(object):
       ,lob_column_name   = None
       ,lob_varray_owner  = None
       ,lob_varray_name   = None
+      ,lob_securefile    = None
    ):
    
       self._parent_resource  = parent_resource;
@@ -92,7 +93,8 @@ class Secondary(object):
       self._lob_table_name    = lob_table_name;
       self._lob_column_name   = lob_column_name;
       self._lob_varray_owner  = lob_varray_owner;
-      self._lob_varray_name   = lob_varray_name;      
+      self._lob_varray_name   = lob_varray_name;
+      self._lob_securefile    = lob_securefile;      
       
       curs = parent_resource._sqliteconn.cursor();
       
@@ -118,6 +120,7 @@ class Secondary(object):
             ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
             ,c.type_owner
             ,c.type_name
+            ,a.securefile
             FROM
             dba_lobs a
             LEFT JOIN
@@ -159,6 +162,7 @@ class Secondary(object):
             bytes_comp_unk   = row[13];
             lob_varray_owner = row[14];
             lob_varray_name  = row[15];
+            lob_securefile   = row[16];
          
             if (owner,segment_name,partition_name) not in parent_resource._secondaries:
                parent_resource._secondaries[(owner,segment_name,partition_name)] = Secondary(
@@ -182,6 +186,7 @@ class Secondary(object):
                   ,lob_column_name  = lob_column_name
                   ,lob_varray_owner = lob_varray_owner
                   ,lob_varray_name  = lob_varray_name
+                  ,lob_securefile   = lob_securefile
                );
             
          # Harvest all table indexes
@@ -923,6 +928,10 @@ class Secondary(object):
    @property
    def lob_varray_name(self):
       return self._lob_varray_name;
+ 
+   @property
+   def lob_securefile(self):
+      return self._lob_securefile;
       
    ####
    def bytes_used(
@@ -1070,7 +1079,7 @@ class Secondary(object):
                   
                   else:
                      rez.append('ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                        + 'REBUILD PARAMETERS(\'' + prms + '\');');
+                        + 'REBUILD ' + prms + ';');
                   
                   return rez;                     
                
@@ -1098,7 +1107,23 @@ class Secondary(object):
                + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
                + '(' + self.index_columns + ') '                                    \
                + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
-            return rez;               
+            return rez;
+
+      elif recipe == 'SHRINKSFLOB':
+   
+         if self.segment_type == 'LOBSEGMENT' and self.lob_securefile == 'YES':
+      
+            if self.lob_varray_name is not None:
+               rez = 'ALTER TABLE ' + self.owner + '.' + self.lob_table_name + ' ' \
+                  + 'MOVE VARRAY ' + self.lob_column_name + ' ' \
+                  + 'STORE AS SECUREFILE LOB(TABLESPACE ' + self.tablespace_name + ');';
+               return [rez];
+               
+            else:
+               rez = 'ALTER TABLE ' + self.owner + '.' + self.lob_table_name + ' ' \
+                  + 'MOVE LOB(' + self.lob_column_name + ') ' \
+                  + 'STORE AS (TABLESPACE ' + self.tablespace_name + ');';
+               return [rez]; 
       
       if rebuild_indx_flg:
          
@@ -1123,7 +1148,7 @@ class Secondary(object):
                
                else:
                   rez.append('ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                     + 'REBUILD PARAMETERS(\'' + prms + '\');');
+                     + 'REBUILD ' + prms + ';');
                
                return rez;
                      

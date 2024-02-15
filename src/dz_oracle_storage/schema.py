@@ -24,6 +24,7 @@ class Schema(object):
       self._bytes_comp_low     = bytes_comp_low;
       self._bytes_comp_high    = bytes_comp_high;
       self._bytes_comp_unk     = bytes_comp_unk;
+      self._bytes_recyclebin   = 0;
       self._ignore_tbs_results = {};
       
    @property
@@ -129,7 +130,27 @@ class Schema(object):
       ,igtbs = None
    ) -> float:
       return self.bytes_comp_unk(igtbs) / 1024 / 1024 / 1024;
-     
+      
+   ####
+   def bytes_recyclebin(
+       self
+      ,igtbs = None
+   ) -> float:
+      if dzx(igtbs) is not None:
+         if dzx(igtbs) not in self._ignore_tbs_results:
+            self.reharvest_with_ignore(dzx(igtbs));
+
+         return self._ignore_tbs_results[dzx(igtbs)]['bytes_recyclebin'];
+         
+      return self._bytes_recyclebin;
+      
+   ####
+   def gb_recyclebin(
+       self
+      ,igtbs = None
+   ) -> float:
+      return self.bytes_recyclebin(igtbs) / 1024 / 1024 / 1024;
+      
    ############################################################################
    def reharvest_with_ignore(
        self
@@ -218,14 +239,57 @@ class Schema(object):
          bytes_comp_low  = row[3];
          bytes_comp_high = row[4];
          bytes_comp_unk  = row[5];            
-         
-      curs.close();
       
       self._ignore_tbs_results[igtbs_s] = {
-          "bytes_used":      bytes_used
-         ,"bytes_comp_none": bytes_comp_none
-         ,"bytes_comp_low":  bytes_comp_low
-         ,"bytes_comp_high": bytes_comp_high
-         ,"bytes_comp_unk":  bytes_comp_unk
+          "bytes_used":       bytes_used
+         ,"bytes_comp_none":  bytes_comp_none
+         ,"bytes_comp_low":   bytes_comp_low
+         ,"bytes_comp_high":  bytes_comp_high
+         ,"bytes_comp_unk":   bytes_comp_unk
+         ,"bytes_recyclebin": 0
       }
+      
+      str_sql = """
+         SELECT
+          a.owner
+         ,SUM(b.bytes) AS bytes_recyclebin
+         FROM (
+            SELECT
+             aa.owner
+            ,aa.object_name
+            ,aa.ts_name
+            FROM
+            dba_recyclebin aa
+            WHERE
+                aa.ts_name IS NOT NULL
+            AND aa.ts_name NOT IN (""" + igtbs_s + """)
+            GROUP BY
+             aa.owner
+            ,aa.object_name
+            ,aa.ts_name
+         ) a
+         JOIN
+         dba_segments b
+         ON
+             a.owner       = b.owner
+         AND a.object_name = b.segment_name
+         WHERE 
+         a.owner = :p01
+         GROUP BY
+         a.owner
+      """;
+      
+      curs.execute(
+          str_sql
+         ,{'p01':self._schema_name}    
+      );
+      bytes_recyclebin = None;
+      for row in curs:
+         owner            = row[0];
+         bytes_recyclebin = row[1];
+       
+      if bytes_recyclebin is not None:       
+         self._ignore_tbs_results[igtbs_s]['bytes_recyclebin'] = bytes_recyclebin;
+                 
+      curs.close();
       

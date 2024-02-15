@@ -2006,6 +2006,41 @@ class Instance(object):
             ,bytes_comp_unk  = bytes_comp_unk
          );
          
+      str_sql = """
+         SELECT
+          a.owner
+         ,SUM(b.bytes) AS bytes_recyclebin
+         FROM (
+            SELECT
+             aa.owner
+            ,aa.object_name
+            ,aa.ts_name
+            FROM
+            dba_recyclebin aa
+            WHERE
+            aa.ts_name IS NOT NULL
+            GROUP BY
+             aa.owner
+            ,aa.object_name
+            ,aa.ts_name
+         ) a
+         JOIN
+         dba_segments b
+         ON
+             a.owner       = b.owner
+         AND a.object_name = b.segment_name
+         GROUP BY
+         a.owner
+      """;
+      
+      curs.execute(str_sql);
+      for row in curs:
+         owner            = row[0];
+         bytes_recyclebin = row[1];
+         
+         if owner in self._schemas:     
+            self._schemas[owner]._bytes_recyclebin = bytes_recyclebin;
+         
       curs.close();
       
    ############################################################################

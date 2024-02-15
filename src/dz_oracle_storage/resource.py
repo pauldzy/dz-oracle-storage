@@ -245,7 +245,7 @@ class Resource(object):
       if recipe in ['REBUILDSPX']:
          rebuild_spatial = True;
       
-      if recipe in ['HIGH']:
+      if recipe in ['HIGH','SHRINKSFLOB']:
          for item in self.secondaries.values():
             if  item.segment_type == 'LOBSEGMENT'      \
             and (                                      \
@@ -279,7 +279,7 @@ class Resource(object):
                   rebuild_indx_flg = True;
                   rez = rez + r;
              
-      if recipe in ['HIGH','REBUILDSPX']:
+      if recipe in ['HIGH','REBUILDSPX','SHRINKSFLOB']:
          for item in self.secondaries.values():
             
             if  item.segment_type == 'INDEX'           \

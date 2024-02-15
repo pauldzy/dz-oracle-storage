@@ -57,7 +57,6 @@ class Table(object):
          index_type   = row[2];
          
          if index_type == 'DOMAIN':
-            rez.append('/* domain index */');
             rez.append('ALTER INDEX ' + index_owner + '.' + index_name + ' REBUILD;');
             
          elif index_type == 'LOB':

@@ -100,7 +100,8 @@ class Datafile(object):
       elif result_count is None and result_gb is not None:
          result_count = 1000;
       
-      curs = self._parent._sqliteconn.cursor();      
+      curs  = self._parent._sqliteconn.cursor();
+      curs2 = self._parent._sqliteconn.cursor();      
       
       str_sql = """
          SELECT
@@ -169,7 +170,70 @@ class Datafile(object):
          if segment_type == 'TABLE':
             rez.append('ALTER TABLE ' + owner + '.' + segment_name + ' MOVE TABLESPACE ' + target_tablespace_name + ';');
             rez = rez + Table(self._parent,owner,segment_name).rebuild_indexes();
+         
+         elif segment_type == 'LOBSEGMENT':
+            str_sql = """
+               SELECT
+                a.owner
+               ,a.table_name
+               ,a.column_name
+               ,a.securefile
+               ,b.type_owner
+               ,b.type_name
+               FROM
+               dba_lobs a
+               LEFT JOIN
+               dba_varrays b
+               ON
+                   a.owner        = b.owner
+               AND a.segment_name = b.lob_name
+               WHERE
+                   a.owner        = :p01
+               AND a.segment_name = :p02
+            """;
             
+            curs2.execute(
+                str_sql
+               ,{
+                   'p01': owner
+                  ,'p02': segment_name
+                }
+            );
+            
+            lob_owner         = None;
+            lob_table_name    = None;
+            lob_column_name   = None;
+            lob_securefile    = None;
+            varray_type_owner = None;
+            varray_type_name  = None;
+            for row in curs2:
+               lob_owner         = row[0];
+               lob_table_name    = row[1];
+               lob_column_name   = row[2];
+               lob_securefile    = row[3];
+               varray_type_owner = row[4];
+               varray_type_name  = row[5];
+               
+               
+            if lob_owner is not None:
+               if varray_type_owner is not None:
+                  if lob_securefile == 'YES':
+                     rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '         \
+                        + 'MOVE VARRAY ' + lob_column_name + ' '                                \
+                        + 'STORE AS SECUREFILE LOB(TABLESPACE ' + target_tablespace_name + ');');
+                        
+                  else:
+                     rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '      \
+                        + 'MOVE VARRAY ' + lob_column_name + ' '                             \
+                        + 'STORE AS LOB(TABLESPACE ' + target_tablespace_name + ');');
+               
+               else:
+                  rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '   \
+                     + 'MOVE LOB(' + lob_column_name + ') '                            \
+                     + 'STORE AS (TABLESPACE ' + target_tablespace_name + ');');
+                     
+               rez = rez + Table(self._parent,lob_owner,lob_table_name).rebuild_indexes();
+         
          else:
             rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' */');
          
@@ -180,6 +244,7 @@ class Datafile(object):
             exit;
             
       curs.close();
+      curs2.close();
       
       return rez;
       
