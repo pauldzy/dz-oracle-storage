@@ -643,6 +643,7 @@ class Instance(object):
              compression
          );
          
+         /* dba_ind_columns */
          CREATE TABLE dba_ind_columns(
              index_owner      TEXT    NOT NULL
             ,index_name       TEXT    NOT NULL
@@ -651,7 +652,7 @@ class Instance(object):
             ,column_name      TEXT
             ,column_position  INTEGER NOT NULL
             ,descend          TEXT
-            ,PRIMARY KEY(index_owner,index_name,column_name)
+            ,PRIMARY KEY(index_owner,index_name,column_position)
          );
          CREATE INDEX dba_ind_columns_i01 ON dba_ind_columns(
              index_owner
@@ -662,6 +663,26 @@ class Instance(object):
             ,table_name
          );
          
+         /* dba_ind_expressions */
+         CREATE TABLE dba_ind_expressions(
+             index_owner       TEXT    NOT NULL
+            ,index_name        TEXT    NOT NULL
+            ,table_owner       TEXT    NOT NULL
+            ,table_name        TEXT    NOT NULL
+            ,column_expression TEXT
+            ,column_position   INTEGER NOT NULL
+            ,PRIMARY KEY(index_owner,index_name,column_position)
+         );
+         CREATE INDEX dba_ind_expressions_i01 ON dba_ind_expressions(
+             index_owner
+            ,index_name
+         );
+         CREATE INDEX dba_ind_expressions_i02 ON dba_ind_expressions(
+             table_owner
+            ,table_name
+         );
+         
+         /* dba_lobs */
          CREATE TABLE dba_lobs(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -881,7 +902,88 @@ class Instance(object):
          AND a.table_name    = b.segment_name
          AND b.partition_name IS NULL
          WHERE
-         a.secondary     = 'N';         
+         a.secondary     = 'N';
+
+         /* dba_indexes_plus */
+         CREATE VIEW dba_indexes_plus(
+             owner
+            ,index_name
+            ,table_owner
+            ,table_name
+            ,index_type
+            ,compression
+            ,tablespace_name
+            ,status
+            ,domidx_status
+            ,domidx_opstatus
+            ,ityp_owner
+            ,ityp_name
+            ,parameters
+            ,index_columns
+         )
+         AS
+         SELECT
+          a.owner
+         ,a.index_name
+         ,a.table_owner
+         ,a.table_name
+         ,a.index_type
+         ,a.compression
+         ,a.tablespace_name
+         ,a.status
+         ,a.domidx_status
+         ,a.domidx_opstatus
+         ,a.ityp_owner
+         ,a.ityp_name
+         ,a.parameters
+         ,b.index_columns
+         FROM
+         dba_indexes a
+         LEFT JOIN (
+            SELECT
+             bb.index_owner
+            ,bb.index_name
+            ,bb.table_owner AS index_table_owner
+            ,bb.table_name  AS index_table_name
+            ,GROUP_CONCAT(bb.column_results,',') AS index_columns
+            FROM (
+               SELECT
+                bbb.index_owner
+               ,bbb.index_name
+               ,bbb.table_owner
+               ,bbb.table_name
+               ,bbb.column_position
+               ,CASE
+                WHEN ccc.column_expression IS NOT NULL
+                THEN
+                  ccc.column_expression
+                ELSE
+                  bbb.column_name
+                END AS column_results
+               FROM
+               dba_ind_columns bbb
+               LEFT JOIN
+               dba_ind_expressions ccc
+               ON
+                   bbb.index_owner     = ccc.index_owner
+               AND bbb.index_name      = ccc.index_name
+               AND bbb.column_position = ccc.column_position
+               ORDER BY
+                1
+               ,2
+               ,3
+               ,4
+               ,5
+            ) bb
+            GROUP BY
+             bb.index_owner
+            ,bb.index_name
+            ,bb.table_owner
+            ,bb.table_name
+         ) b
+         ON
+             a.owner      = b.index_owner
+         AND a.index_name = b.index_name;            
       """);
       
       c.close();
@@ -1306,6 +1408,37 @@ class Instance(object):
          ,a.descend
          FROM
          dba_ind_columns a
+      """;
+      str_from += self.dts_asof;
+      
+      fromc.execute(str_from);
+      for row in fromc:
+         toc.execute(str_to,row);
+         
+      ## dba_ind_columns
+      str_to = """
+         INSERT INTO dba_ind_expressions(
+             index_owner
+            ,index_name
+            ,table_owner
+            ,table_name
+            ,column_expression
+            ,column_position
+         ) VALUES (
+            ?,?,?,?,?,?
+         )
+      """;
+      
+      str_from = """
+         SELECT
+          a.index_owner
+         ,a.index_name
+         ,a.table_owner
+         ,a.table_name
+         ,a.column_expression
+         ,a.column_position
+         FROM
+         dba_ind_expressions a
       """;
       str_from += self.dts_asof;
       

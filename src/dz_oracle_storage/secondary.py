@@ -1,5 +1,5 @@
 import os,sys;
-from .util import read_spatial_parms,write_spatial_parms;
+from .util import spatial_parms;
 
 ############################################################################### 
 class Secondary(object):
@@ -206,11 +206,11 @@ class Secondary(object):
             ,CASE WHEN a.compression = 'UNK'  THEN a.bytes_used ELSE 0 END AS bytes_comp_unk
             ,a.index_type
             ,a.parameters
-            ,a.index_table_owner
-            ,a.index_table_name
-            ,a.index_columns
+            ,a.table_owner
+            ,a.table_name
             ,a.ityp_owner
             ,a.ityp_name
+            ,a.index_columns
             FROM (
                SELECT
                 aa.owner
@@ -262,52 +262,18 @@ class Secondary(object):
                 END AS bytes_used
                ,aa.index_type
                ,aa.parameters
-               ,cc.index_table_owner
-               ,cc.index_table_name
-               ,cc.index_columns
+               ,aa.table_owner
+               ,aa.table_name
                ,aa.ityp_owner
                ,aa.ityp_name
+               ,aa.index_columns
                FROM
-               dba_indexes aa
+               dba_indexes_plus aa
                LEFT JOIN
                segments_compression bb
                ON
                    aa.owner        = bb.owner
                AND aa.index_name   = bb.segment_name
-               LEFT JOIN (
-                  SELECT
-                   ccc.index_owner
-                  ,ccc.index_name
-                  ,ccc.table_owner AS index_table_owner
-                  ,ccc.table_name  AS index_table_name
-                  ,GROUP_CONCAT(ccc.column_name,',') AS index_columns
-                  FROM (
-                     SELECT
-                      cccc.index_owner
-                     ,cccc.index_name
-                     ,cccc.table_owner
-                     ,cccc.table_name
-                     ,cccc.column_name
-                     FROM
-                     dba_ind_columns cccc
-                     ORDER BY
-                      cccc.index_owner
-                     ,cccc.index_name
-                     ,cccc.table_owner
-                     ,cccc.table_name
-                     ,cccc.column_name
-                     ,cccc.column_position
-                  ) ccc
-                  GROUP BY
-                   ccc.index_owner
-                  ,ccc.index_name
-                  ,ccc.table_owner
-                  ,ccc.table_name
-                  
-               ) cc
-               ON
-                   aa.owner        = cc.index_owner
-               AND aa.index_name   = cc.index_name
                WHERE
                    aa.table_owner = :p01
                AND aa.table_name  = :p02
@@ -338,9 +304,9 @@ class Secondary(object):
             index_parameters  = row[13];
             index_table_owner = row[14];
             index_table_name  = row[15];
-            index_columns     = row[16];
-            ityp_owner        = row[17];
-            ityp_name         = row[18];
+            ityp_owner        = row[16];
+            ityp_name         = row[17];
+            index_columns     = row[18];
             
             if (index_owner,index_name,partition_name) not in parent_resource._secondaries:
                parent_resource._secondaries[(index_owner,index_name,partition_name)] = Secondary(
@@ -1060,21 +1026,17 @@ class Secondary(object):
             if self.index_type == 'DOMAIN':
             
                if self.ityp_owner == 'MDSYS' and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-                  prms = write_spatial_parms(
-                      read_spatial_parms(self.index_parameters)
-                     ,{'SECUREFILE':'TRUE','COMPRESSION':'HIGH'}
+                  prms = spatial_parms(
+                      parms        = self.index_parameters
+                     ,inject_parms = {'SECUREFILE':'TRUE','COMPRESSION':'HIGH'}
                   );
-                  if prms is not None and len(prms) > 0:
-                     prms = 'PARAMETERS (\'' + prms + '\')';
-                  else:
-                     prms = "";
-                  
+                        
                   rez = [];
                   if rebuild_spatial:
                      rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
                      rez.append('CREATE INDEX ' + self.owner + '.' + self.segment_name + ' ' \
                         + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
-                        + '(' + self.index_columns + ') '                                    \
+                        + '(' + self.index_columns + ') '
                         + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
                   
                   else:
@@ -1093,13 +1055,9 @@ class Secondary(object):
          if  self.segment_type == 'INDEX' \
          and self.ityp_owner == 'MDSYS' \
          and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-            prms = write_spatial_parms(
-                read_spatial_parms(self.index_parameters)
+            prms = spatial_parms(
+               parms        = self.index_parameters
             );
-            if prms is not None and len(prms) > 0:
-               prms = 'PARAMETERS (\'' + prms + '\')';
-            else:
-               prms = "";
             
             rez = [];
             rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
@@ -1130,13 +1088,9 @@ class Secondary(object):
          if self.segment_type == 'INDEX':
          
             if self.ityp_owner == 'MDSYS' and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-               prms = write_spatial_parms(
-                   read_spatial_parms(self.index_parameters)
+               prms = spatial_parms(
+                  parms        = self.index_parameters
                );
-               if prms is not None and len(prms) > 0:
-                  prms = 'PARAMETERS (\'' + prms + '\')';
-               else:
-                  prms = "";
                
                rez = [];
                if rebuild_spatial:

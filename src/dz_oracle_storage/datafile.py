@@ -1,5 +1,5 @@
 import os,sys;
-
+from .util import spatial_parms;
 from .table import Table;
 
 ############################################################################### 
@@ -81,9 +81,10 @@ class Datafile(object):
    ####
    def move_from_hw(
        self
-      ,target_tablespace_name
-      ,result_count = None
-      ,result_gb    = None
+      ,target_tablespace_name: str
+      ,result_count: int     = None
+      ,result_gb: float      = None
+      ,rebuild_spatial: bool = True
    ) -> list[str]:
    
       if not self._parent.harvest_extents:
@@ -168,11 +169,113 @@ class Datafile(object):
          bytes          = row[7];
          
          if segment_type == 'TABLE':
-            rez.append('ALTER TABLE ' + owner + '.' + segment_name + ' MOVE TABLESPACE ' + target_tablespace_name + ';');
-            rez = rez + Table(self._parent,owner,segment_name).rebuild_indexes();
+            str_sql2 = """
+               SELECT
+                a.owner
+               ,a.table_name
+               ,a.partitioned
+               ,a.iot_type
+               ,a.temporary
+               ,a.secondary
+               FROM
+               dba_tables a
+               WHERE
+                   a.owner      = :p01
+               AND a.table_name = :p02
+            """;
+            
+            curs2.execute(
+                str_sql2
+               ,{
+                   'p01': owner
+                  ,'p02': segment_name
+                }
+            );
+            
+            table_owner       = None;
+            table_name        = None;
+            table_partitioned = None;
+            table_iot_type    = None;
+            table_temporary   = None;
+            table_secondary   = None;
+            for row in curs2:
+               table_owner       = row[0];
+               table_name        = row[1];
+               table_partitioned = row[2];
+               table_iot_type    = row[3];
+               table_temporary   = row[4];
+               table_secondary   = row[5];
+            
+            if table_secondary == 'N':
+               rez.append('ALTER TABLE ' + owner + '.' + segment_name + ' MOVE TABLESPACE ' + target_tablespace_name + ';');
+               rez = rez + Table(self._parent,owner,segment_name).rebuild_indexes(rebuild_spatial=rebuild_spatial);
+               
+            else:
+               str_sql2 = """
+                  SELECT
+                   a.sdo_index_owner
+                  ,a.sdo_index_name
+                  ,b.table_owner
+                  ,b.table_name
+                  ,b.index_columns
+                  ,b.parameters
+                  FROM
+                  sdo_index_metadata_table a
+                  JOIN
+                  dba_indexes_plus b
+                  ON
+                      a.sdo_index_owner = b.owner
+                  AND a.sdo_index_name  = b.index_name
+                  WHERE
+                      a.sdo_index_owner = :p01
+                  AND a.sdo_index_table = :p02
+               """;
+               
+               curs2.execute(
+                   str_sql2
+                  ,{
+                      'p01': owner
+                     ,'p02': segment_name
+                   }
+               );
+               
+               sdo_index_owner  = None;
+               sdo_index_name   = None;
+               table_owner      = None;
+               table_name       = None;
+               index_columns    = None;
+               index_parameters = None;
+               for row in curs2:
+                  sdo_index_owner  = row[0];
+                  sdo_index_name   = row[1];
+                  table_owner      = row[2];
+                  table_name       = row[3];
+                  index_columns    = row[4];
+                  index_parameters = row[5];
+                  
+               if sdo_index_name is not None:
+                  
+                  if rebuild_spatial:
+                     prms = spatial_parms(
+                         parms        = index_parameters
+                        ,inject_parms = {'TABLESPACE':target_tablespace_name}
+                     );
+                     
+                     rez.append('DROP INDEX ' + sdo_index_owner + '.' + sdo_index_name + ';');
+                     rez.append('CREATE INDEX ' + sdo_index_owner + '.' + sdo_index_name + ' ' \
+                     + 'ON ' + table_owner + '.' + table_name       \
+                     + '(' + index_columns + ') '                                    \
+                     + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
+                     
+                  else:
+                     rez.append('ALTER INDEX ' + sdo_index_owner + '.' + sdo_index_name + ' ' \
+                        + 'REBUILD TABLESPACE ' + target_tablespace_name + ';');
+               
+               else:               
+                  rez.append('/* Secondary table */');
          
          elif segment_type == 'LOBSEGMENT':
-            str_sql = """
+            str_sql2 = """
                SELECT
                 a.owner
                ,a.table_name
@@ -193,7 +296,7 @@ class Datafile(object):
             """;
             
             curs2.execute(
-                str_sql
+                str_sql2
                ,{
                    'p01': owner
                   ,'p02': segment_name
@@ -213,8 +316,7 @@ class Datafile(object):
                lob_securefile    = row[3];
                varray_type_owner = row[4];
                varray_type_name  = row[5];
-               
-               
+
             if lob_owner is not None:
                if varray_type_owner is not None:
                   if lob_securefile == 'YES':
@@ -233,6 +335,10 @@ class Datafile(object):
                      + 'STORE AS (TABLESPACE ' + target_tablespace_name + ');');
                      
                rez = rez + Table(self._parent,lob_owner,lob_table_name).rebuild_indexes();
+         
+         elif segment_type == 'INDEX':
+            rez.append('ALTER INDEX ' + owner + '.' + segment_name + ' ' \
+                     + 'REBUILD TABLESPACE ' + target_tablespace_name + ';');
          
          else:
             rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' */');

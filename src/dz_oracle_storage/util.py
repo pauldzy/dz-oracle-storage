@@ -92,3 +92,27 @@ def write_spatial_parms(
       rez += k + '=' + v + ' ';
       
    return rez.strip();
+   
+###############################################################################
+def spatial_parms(
+    parms: str
+   ,inject_parms: dict = None
+) -> str:
+
+   parm_hash = read_spatial_parms(
+      parms = parms
+   );
+   
+   if parm_hash is None:
+      return "";
+   
+   rez = write_spatial_parms(
+       parm_hash    = parm_hash
+      ,inject_parms = inject_parms
+   );
+   
+   if rez is None or rez == "":
+      return "";
+      
+   else:
+      return "PARAMETERS(\'" + rez + "\')"; 
