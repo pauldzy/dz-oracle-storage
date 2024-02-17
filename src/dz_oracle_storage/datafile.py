@@ -1,6 +1,6 @@
-import os,sys;
-from .util import spatial_parms;
+import os,sys,math;
 from .table import Table;
+from .index import Index;
 
 ############################################################################### 
 class Datafile(object):
@@ -8,27 +8,28 @@ class Datafile(object):
    def __init__(
        self
       ,parent
-      ,file_name
-      ,file_id
-      ,tablespace_name
-      ,bytes_allocated
-      ,bytes_used
-      ,bytes_free
-      ,max_free_bytes
-      ,extents_hmw   = None
-      ,db_block_size = None
+      ,file_name: str
+      ,file_id: int
+      ,tablespace_name: str
+      ,blocks: int
+      ,bytes_allocated: int
+      ,bytes_used: int
+      ,bytes_free: int
+      ,max_free_bytes: int
+      ,extents_hmw:int   = None
    ):
    
       self._parent             = parent;
-      self._file_name          = file_name;
+      self._sqliteconn         = parent._sqliteconn;
+      self._file_name: str     = file_name;
       self._file_id            = file_id;
       self._tablespace_name    = tablespace_name;
+      self._blocks             = blocks;
       self._bytes_allocated    = bytes_allocated;
       self._bytes_used         = bytes_used;
       self._bytes_free         = bytes_free;
       self._max_free_bytes     = max_free_bytes;
       self._extents_hmw        = extents_hmw;
-      self._db_block_size      = db_block_size;
       
    @property
    def file_name(self):
@@ -41,6 +42,10 @@ class Datafile(object):
    @property
    def tablespace_name(self):
       return self._tablespace_name;
+      
+   @property
+   def blocks(self):
+      return self._blocks;
       
    ####
    def bytes_allocated(
@@ -77,6 +82,27 @@ class Datafile(object):
       self
    ) -> float:
       return self.bytes_free() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_resizeable(
+      self
+   ) -> float:
+      
+      if self._extents_hmw is None:
+         highwatermark = 1;
+      else:
+         highwatermark = self._extents_hmw;
+
+      current_size_bytes = math.ceil(self._blocks  * self._parent.db_block_size);
+      target_size_bytes  = math.ceil(highwatermark * self._parent.db_block_size);
+      
+      return current_size_bytes - target_size_bytes;
+   
+   ####
+   def gb_resizeable(
+      self
+   ) -> float:
+      return self.bytes_resizeable() / 1024 / 1024 / 1024;
       
    ####
    def move_from_hw(
@@ -156,6 +182,7 @@ class Datafile(object):
           }
       );
       
+      already_done = {};
       running_gb = 0;
       rez = [];
       for row in curs:
@@ -167,68 +194,24 @@ class Datafile(object):
          end_block      = row[5];
          blocks         = row[6];
          bytes          = row[7];
+
+         key = owner + segment_name + str(partition_name);
+         if owner == 'free' or key not in already_done:
          
-         if segment_type == 'TABLE':
-            str_sql2 = """
-               SELECT
-                a.owner
-               ,a.table_name
-               ,a.partitioned
-               ,a.iot_type
-               ,a.temporary
-               ,a.secondary
-               FROM
-               dba_tables a
-               WHERE
-                   a.owner      = :p01
-               AND a.table_name = :p02
-            """;
-            
-            curs2.execute(
-                str_sql2
-               ,{
-                   'p01': owner
-                  ,'p02': segment_name
-                }
-            );
-            
-            table_owner       = None;
-            table_name        = None;
-            table_partitioned = None;
-            table_iot_type    = None;
-            table_temporary   = None;
-            table_secondary   = None;
-            for row in curs2:
-               table_owner       = row[0];
-               table_name        = row[1];
-               table_partitioned = row[2];
-               table_iot_type    = row[3];
-               table_temporary   = row[4];
-               table_secondary   = row[5];
-            
-            if table_secondary == 'N':
-               rez.append('ALTER TABLE ' + owner + '.' + segment_name + ' MOVE TABLESPACE ' + target_tablespace_name + ';');
-               rez = rez + Table(self._parent,owner,segment_name).rebuild_indexes(rebuild_spatial=rebuild_spatial);
-               
-            else:
+            if segment_type == 'TABLE':
                str_sql2 = """
                   SELECT
-                   a.sdo_index_owner
-                  ,a.sdo_index_name
-                  ,b.table_owner
-                  ,b.table_name
-                  ,b.index_columns
-                  ,b.parameters
+                   a.owner
+                  ,a.table_name
+                  ,a.partitioned
+                  ,a.iot_type
+                  ,a.temporary
+                  ,a.secondary
                   FROM
-                  sdo_index_metadata_table a
-                  JOIN
-                  dba_indexes_plus b
-                  ON
-                      a.sdo_index_owner = b.owner
-                  AND a.sdo_index_name  = b.index_name
+                  dba_tables a
                   WHERE
-                      a.sdo_index_owner = :p01
-                  AND a.sdo_index_table = :p02
+                      a.owner      = :p01
+                  AND a.table_name = :p02
                """;
                
                curs2.execute(
@@ -239,115 +222,199 @@ class Datafile(object):
                    }
                );
                
-               sdo_index_owner  = None;
-               sdo_index_name   = None;
-               table_owner      = None;
-               table_name       = None;
-               index_columns    = None;
-               index_parameters = None;
+               table_owner       = None;
+               table_name        = None;
+               table_partitioned = None;
+               table_iot_type    = None;
+               table_temporary   = None;
+               table_secondary   = None;
                for row in curs2:
-                  sdo_index_owner  = row[0];
-                  sdo_index_name   = row[1];
-                  table_owner      = row[2];
-                  table_name       = row[3];
-                  index_columns    = row[4];
-                  index_parameters = row[5];
+                  table_owner       = row[0];
+                  table_name        = row[1];
+                  table_partitioned = row[2];
+                  table_iot_type    = row[3];
+                  table_temporary   = row[4];
+                  table_secondary   = row[5];
+               
+               if table_secondary == 'N':
+                  rez.append('ALTER TABLE ' + owner + '.' + segment_name + ' MOVE TABLESPACE ' + target_tablespace_name + ';');
+                  rez = rez + Table(self._parent,owner,segment_name).rebuild_indexes(rebuild_spatial=rebuild_spatial);
                   
-               if sdo_index_name is not None:
+               else:
+                  str_sql2 = """
+                     SELECT
+                      a.sdo_index_owner
+                     ,a.sdo_index_name
+                     ,b.index_type
+                     ,b.table_owner
+                     ,b.table_name
+                     ,b.parameters
+                     ,b.ityp_owner
+                     ,b.ityp_name
+                     ,b.index_columns
+                     FROM
+                     sdo_index_metadata_table a
+                     JOIN
+                     dba_indexes_plus b
+                     ON
+                         a.sdo_index_owner = b.owner
+                     AND a.sdo_index_name  = b.index_name
+                     WHERE
+                         a.sdo_index_owner = :p01
+                     AND a.sdo_index_table = :p02
+                  """;
                   
-                  if rebuild_spatial:
-                     prms = spatial_parms(
-                         parms        = index_parameters
-                        ,inject_parms = {'TABLESPACE':target_tablespace_name}
+                  curs2.execute(
+                      str_sql2
+                     ,{
+                         'p01': owner
+                        ,'p02': segment_name
+                      }
+                  );
+                  
+                  sdo_index_owner  = None;
+                  sdo_index_name   = None;
+                  index_type       = None;
+                  table_owner      = None;
+                  table_name       = None;
+                  index_parameters = None;
+                  ityp_owner       = None;
+                  ityp_name        = None;
+                  index_columns    = None;
+                  for row in curs2:
+                     sdo_index_owner  = row[0];
+                     sdo_index_name   = row[1];
+                     index_type       = row[2];
+                     table_owner      = row[3];
+                     table_name       = row[4];
+                     index_parameters = row[5];
+                     ityp_owner       = row[6];
+                     ityp_name        = row[7];
+                     index_columns    = row[8];
+                     
+                  if sdo_index_name is not None:
+                     
+                     rez = rez + Index(
+                         self
+                        ,index_owner      = sdo_index_owner
+                        ,index_name       = sdo_index_name
+                        ,index_type       = index_type
+                        ,table_owner      = table_owner
+                        ,table_name       = table_name
+                        ,index_parameters = index_parameters
+                        ,ityp_owner       = ityp_owner
+                        ,ityp_name        = ityp_name
+                        ,index_columns    = index_columns
+                     ).rebuild(
+                         rebuild_spatial = rebuild_spatial
+                        ,move_tablespace = target_tablespace_name 
                      );
                      
-                     rez.append('DROP INDEX ' + sdo_index_owner + '.' + sdo_index_name + ';');
-                     rez.append('CREATE INDEX ' + sdo_index_owner + '.' + sdo_index_name + ' ' \
-                     + 'ON ' + table_owner + '.' + table_name       \
-                     + '(' + index_columns + ') '                                    \
-                     + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
-                     
-                  else:
-                     rez.append('ALTER INDEX ' + sdo_index_owner + '.' + sdo_index_name + ' ' \
-                        + 'REBUILD TABLESPACE ' + target_tablespace_name + ';');
+                  else:               
+                     rez.append('/* Secondary table */');
+            
+            elif segment_type in ['LOBSEGMENT','LOBINDEX']:
+               str_sql2 = """
+                  SELECT
+                   a.owner
+                  ,a.table_name
+                  ,a.column_name
+                  ,a.securefile
+                  ,b.type_owner
+                  ,b.type_name
+                  FROM
+                  dba_lobs a
+                  LEFT JOIN
+                  dba_varrays b
+                  ON
+                      a.owner        = b.owner
+                  AND a.segment_name = b.lob_name
+                  WHERE
+                      a.owner        = :p01
+                  AND a.segment_name = :p02
+                  
+                  UNION ALL
+                  
+                  SELECT
+                   c.owner
+                  ,c.table_name
+                  ,c.column_name
+                  ,c.securefile
+                  ,d.type_owner
+                  ,d.type_name
+                  FROM
+                  dba_lobs c
+                  LEFT JOIN
+                  dba_varrays d
+                  ON
+                      c.owner        = d.owner
+                  AND c.segment_name = d.lob_name
+                  WHERE
+                      c.owner        = :p03
+                  AND c.index_name   = :p04
+               """;
                
-               else:               
-                  rez.append('/* Secondary table */');
-         
-         elif segment_type == 'LOBSEGMENT':
-            str_sql2 = """
-               SELECT
-                a.owner
-               ,a.table_name
-               ,a.column_name
-               ,a.securefile
-               ,b.type_owner
-               ,b.type_name
-               FROM
-               dba_lobs a
-               LEFT JOIN
-               dba_varrays b
-               ON
-                   a.owner        = b.owner
-               AND a.segment_name = b.lob_name
-               WHERE
-                   a.owner        = :p01
-               AND a.segment_name = :p02
-            """;
-            
-            curs2.execute(
-                str_sql2
-               ,{
-                   'p01': owner
-                  ,'p02': segment_name
-                }
-            );
-            
-            lob_owner         = None;
-            lob_table_name    = None;
-            lob_column_name   = None;
-            lob_securefile    = None;
-            varray_type_owner = None;
-            varray_type_name  = None;
-            for row in curs2:
-               lob_owner         = row[0];
-               lob_table_name    = row[1];
-               lob_column_name   = row[2];
-               lob_securefile    = row[3];
-               varray_type_owner = row[4];
-               varray_type_name  = row[5];
+               curs2.execute(
+                   str_sql2
+                  ,{
+                      'p01': owner
+                     ,'p02': segment_name
+                     ,'p03': owner
+                     ,'p04': segment_name
+                   }
+               );
+               
+               lob_owner         = None;
+               lob_table_name    = None;
+               lob_column_name   = None;
+               lob_securefile    = None;
+               varray_type_owner = None;
+               varray_type_name  = None;
+               for row in curs2:
+                  lob_owner         = row[0];
+                  lob_table_name    = row[1];
+                  lob_column_name   = row[2];
+                  lob_securefile    = row[3];
+                  varray_type_owner = row[4];
+                  varray_type_name  = row[5];
 
-            if lob_owner is not None:
-               if varray_type_owner is not None:
-                  if lob_securefile == 'YES':
-                     rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '         \
-                        + 'MOVE VARRAY ' + lob_column_name + ' '                                \
-                        + 'STORE AS SECUREFILE LOB(TABLESPACE ' + target_tablespace_name + ');');
-                        
+               if lob_owner is not None:
+                  if varray_type_owner is not None:
+                     if lob_securefile == 'YES':
+                        rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '         \
+                           + 'MOVE VARRAY ' + lob_column_name + ' '                                \
+                           + 'STORE AS SECUREFILE LOB(TABLESPACE ' + target_tablespace_name + ');');
+                           
+                     else:
+                        rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '      \
+                           + 'MOVE VARRAY ' + lob_column_name + ' '                             \
+                           + 'STORE AS LOB(TABLESPACE ' + target_tablespace_name + ');');
+                  
                   else:
-                     rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '      \
-                        + 'MOVE VARRAY ' + lob_column_name + ' '                             \
-                        + 'STORE AS LOB(TABLESPACE ' + target_tablespace_name + ');');
+                     rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '   \
+                        + 'MOVE LOB(' + lob_column_name + ') '                            \
+                        + 'STORE AS (TABLESPACE ' + target_tablespace_name + ');');
+                        
+                  rez = rez + Table(self._parent,lob_owner,lob_table_name).rebuild_indexes(
+                     rebuild_spatial = rebuild_spatial
+                  );
+            
+            elif segment_type == 'INDEX':
+               rez = rez + Index(self._parent,owner,segment_name).rebuild(
+                   rebuild_spatial = rebuild_spatial
+                  ,move_tablespace = target_tablespace_name
+               );
                
-               else:
-                  rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '   \
-                     + 'MOVE LOB(' + lob_column_name + ') '                            \
-                     + 'STORE AS (TABLESPACE ' + target_tablespace_name + ');');
-                     
-               rez = rez + Table(self._parent,lob_owner,lob_table_name).rebuild_indexes();
-         
-         elif segment_type == 'INDEX':
-            rez.append('ALTER INDEX ' + owner + '.' + segment_name + ' ' \
-                     + 'REBUILD TABLESPACE ' + target_tablespace_name + ';');
-         
-         else:
-            rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' */');
-         
-         running_gb += bytes / 1024 / 1024 / 1024;
-         
-         if result_gb is not None \
-         and running_gb > result_gb:
-            exit;
+            else:
+               rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' */');
+            
+            running_gb += bytes / 1024 / 1024 / 1024;
+            
+            if result_gb is not None \
+            and running_gb > result_gb:
+               exit;
+            
+            already_done[key] = 0;
             
       curs.close();
       curs2.close();

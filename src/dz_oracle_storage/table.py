@@ -1,5 +1,5 @@
 import os,sys;
-from .util import spatial_parms;
+from .index import Index;
 
 ############################################################################### 
 class Table(object):
@@ -11,10 +11,10 @@ class Table(object):
       ,table_name
    ):
    
-      self._parent           = parent;
-      self._sqliteconn       = parent._sqliteconn;
-      self._table_owner      = table_owner;
-      self._table_name       = table_name;
+      self._parent             = parent;
+      self._sqliteconn         = parent._sqliteconn;
+      self._table_owner        = table_owner;
+      self._table_name         = table_name;
       
    @property
    def table_owner(self):
@@ -79,32 +79,19 @@ class Table(object):
          ityp_name        = row[7];
          index_columns    = row[8];
          
-         if index_type == 'DOMAIN':
-            
-            if ityp_owner == 'MDSYS' and ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-               
-               if rebuild_spatial:
-                  prms = spatial_parms(
-                     parms = index_parameters
-                  );
-                  rez.append('DROP INDEX ' + index_owner + '.' + index_name + ';');
-                  rez.append('CREATE INDEX ' + index_owner + '.' + index_name + ' ' \
-                     + 'ON ' + table_owner + '.' + table_name                       \
-                     + '(' + index_columns + ') '                                   \
-                     + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
-               
-               else:
-                  rez.append('ALTER INDEX ' + index_owner + '.' + index_name + ' REBUILD;');
-            
-            else:
-               rez.append('/* UNHANDLED DOMAIN INDEX ' + str(ityp_owner) + '.' + str(ityp_name) + ' */');
-               
-         elif index_type == 'LOB':
-            None;
-            
-         else:
-            rez.append('ALTER INDEX ' + index_owner + '.' + index_name + ' REBUILD;');
-
+         rez = rez + Index(
+             self
+            ,index_owner      = index_owner
+            ,index_name       = index_name
+            ,index_type       = index_type
+            ,table_owner      = table_owner
+            ,table_name       = table_name
+            ,index_parameters = index_parameters
+            ,ityp_owner       = ityp_owner
+            ,ityp_name        = ityp_name
+            ,index_columns    = index_columns
+         ).rebuild(rebuild_spatial=rebuild_spatial);
+         
       curs.close();
       
       return rez;

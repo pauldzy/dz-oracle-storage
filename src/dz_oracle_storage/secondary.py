@@ -1,5 +1,5 @@
 import os,sys;
-from .util import spatial_parms;
+from .index import Index;
 
 ############################################################################### 
 class Secondary(object):
@@ -43,6 +43,7 @@ class Secondary(object):
    
       self._parent_resource  = parent_resource;
       self._parent_secondary = parent_secondary;
+      self._sqliteconn       = parent_resource._sqliteconn;
       self._owner            = owner;
       self._depth            = depth;
       self._segment_name     = segment_name;
@@ -1020,51 +1021,47 @@ class Secondary(object):
                return rez;
                
          elif self.segment_type == 'INDEX' and self.compression != 'HIGH' \
-         and self.index_type != 'BITMAP' \
          and (self._parent_secondary is None or self._parent_secondary.secondary == 'N'):
             
-            if self.index_type == 'DOMAIN':
-            
-               if self.ityp_owner == 'MDSYS' and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-                  prms = spatial_parms(
-                      parms        = self.index_parameters
-                     ,inject_parms = {'SECUREFILE':'TRUE','COMPRESSION':'HIGH'}
-                  );
-                        
-                  rez = [];
-                  if rebuild_spatial:
-                     rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
-                     rez.append('CREATE INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                        + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
-                        + '(' + self.index_columns + ') '
-                        + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
-                  
-                  else:
-                     rez.append('ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                        + 'REBUILD ' + prms + ';');
-                  
-                  return rez;                     
-               
-            else:
-               rez = 'ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                  + 'REBUILD COMPRESS ADVANCED HIGH;';
-               return [rez];                  
+            rez = Index(
+                parent           = self
+               ,index_owner      = self.owner
+               ,index_name       = self.segment_name
+               ,index_type       = self.index_type
+               ,table_owner      = self.index_table_owner
+               ,table_name       = self.index_table_name
+               ,index_parameters = self.index_parameters
+               ,ityp_owner       = self.ityp_owner
+               ,ityp_name        = self.ityp_name
+               ,index_columns    = self.index_columns
+            ).rebuild(
+                rebuild_spatial = rebuild_spatial
+               ,set_compression = 'HIGH'    
+            );
+ 
+            return rez;                                      
                
       elif recipe == 'REBUILDSPX':
          
          if  self.segment_type == 'INDEX' \
          and self.ityp_owner == 'MDSYS' \
          and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-            prms = spatial_parms(
-               parms        = self.index_parameters
-            );
             
-            rez = [];
-            rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
-            rez.append('CREATE INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-               + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
-               + '(' + self.index_columns + ') '                                    \
-               + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
+            rez = Index(
+                parent           = self
+               ,index_owner      = self.owner
+               ,index_name       = self.segment_name
+               ,index_type       = self.index_type
+               ,table_owner      = self.index_table_owner
+               ,table_name       = self.index_table_name
+               ,index_parameters = self.index_parameters
+               ,ityp_owner       = self.ityp_owner
+               ,ityp_name        = self.ityp_name
+               ,index_columns    = self.index_columns
+            ).rebuild(
+                rebuild_spatial = rebuild_spatial
+            );
+ 
             return rez;
 
       elif recipe == 'SHRINKSFLOB':
@@ -1087,28 +1084,19 @@ class Secondary(object):
          
          if self.segment_type == 'INDEX':
          
-            if self.ityp_owner == 'MDSYS' and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
-               prms = spatial_parms(
-                  parms        = self.index_parameters
-               );
-               
-               rez = [];
-               if rebuild_spatial:
-                  rez.append('DROP INDEX ' + self.owner + '.' + self.segment_name + ';');
-                  rez.append('CREATE INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                     + 'ON ' + self.index_table_owner + '.' + self.index_table_name       \
-                     + '(' + self.index_columns + ') '                                    \
-                     + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
-               
-               else:
-                  rez.append('ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                     + 'REBUILD ' + prms + ';');
-               
-               return rez;
-                     
-            else:
-               rez = 'ALTER INDEX ' + self.owner + '.' + self.segment_name + ' ' \
-                     + 'REBUILD;';
-               return [rez];
+            rez = Index(
+                parent           = self
+               ,index_owner      = self.owner
+               ,index_name       = self.segment_name
+               ,index_type       = self.index_type
+               ,table_owner      = self.index_table_owner
+               ,table_name       = self.index_table_name
+               ,index_parameters = self.index_parameters
+               ,ityp_owner       = self.ityp_owner
+               ,ityp_name        = self.ityp_name
+               ,index_columns    = self.index_columns
+            ).rebuild(rebuild_spatial=rebuild_spatial);
+ 
+            return rez;
                   
       return None;

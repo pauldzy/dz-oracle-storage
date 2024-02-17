@@ -1,4 +1,5 @@
 import os,sys,inspect;
+import os,sys,inspect;
 import sqlite3,cx_Oracle;
 
 from .util import slugify;
@@ -34,13 +35,14 @@ class Instance(object):
       self._use_existing_db = use_existing_db
       self._harvest_extents = harvest_extents;
       
-      self._dts             = None;
-      self._dts_s           = None;
+      self._dts                = None;
+      self._dts_s: str         = None;
+      self._db_block_size: int = None;
       
-      self._orcl            = None;
-      self._has_spatial     = None;
-      self._has_text        = None;
-      self._has_sde         = None;      
+      self._orcl               = None;
+      self._has_spatial: bool  = None;
+      self._has_text: bool     = None;
+      self._has_sde: bool      = None;      
 
       dbfile = slugify(self._name) + '.db';
       if self._sqlite_location is not None:
@@ -60,7 +62,36 @@ class Instance(object):
          print("== using preexisting information per use_existing_db flag for instance " + self._name + ". ==",file=sys.stderr);
          print("== this flag is only intended for debugging purposes. ==",file=sys.stderr);
          print("",file=sys.stderr);
+         
          self._sqliteconn = sqlite3.connect(self._sqlitepath);
+         curs = self._sqliteconn.cursor();
+         
+         str_sql = """
+         SELECT
+          a.key
+         ,a.value
+         FROM
+         instance_parms a
+         """;
+         
+         curs.execute(str_sql);
+         for row in curs:
+            if row[0] == 'harvest_extents':
+               self._harvest_extents = row[1];
+            if row[0] == 'use_flashback':
+               self._use_flashback = row[1];
+            if row[0] == 'dts_s':
+               self._dts_s = row[1];
+            if row[0] == 'db_block_size':
+               self._db_block_size = int(row[1]);
+            if row[0] == 'has_spatial':
+               self._has_spatial = row[1];
+            if row[0] == 'has_text':
+               self._has_text = row[1];
+            if row[0] == 'has_sde':
+               self._has_sde = row[1];
+               
+         curs.close();
          
       else:
          if self._use_existing_db and not os.path.exists(self._sqlitepath):
@@ -153,6 +184,10 @@ class Instance(object):
    @hoststring.setter
    def hoststring(self,value):
       self._hoststring = value;
+      
+   @property
+   def db_block_size(self):
+      return self._db_block_size;
    
    ####
    def bytes_allocated(
@@ -273,6 +308,22 @@ class Instance(object):
       self
    ) -> float:
       return self.bytes_comp_unk() / 1024 / 1024 / 1024;
+      
+   ####
+   def bytes_resizeable(
+      self
+   ) -> float:
+      
+      rez = 0;
+      for item in self.datafiles_l:
+         rez += item.bytes_resizeable();         
+      return rez;
+   
+   ####
+   def gb_resizeable(
+      self
+   ) -> float:
+      return self.bytes_resizeable() / 1024 / 1024 / 1024;
       
    @property
    def datafiles(self): 
@@ -406,8 +457,11 @@ class Instance(object):
          SELECT
           SYSTIMESTAMP
          ,TO_CHAR(SYSTIMESTAMP,'""" + self.tsf + """')
-         FROM
-         dual
+         ,a.value 
+         FROM 
+         v$parameter a
+         WHERE 
+         UPPER(a.name) = 'DB_BLOCK_SIZE'
       """;
       try:
          curs.execute(str_sql);
@@ -417,8 +471,9 @@ class Instance(object):
          
       row = curs.fetchone();
       
-      self._dts   = row[0];
-      self._dts_s = row[1];
+      self._dts           = row[0];
+      self._dts_s         = row[1];
+      self._db_block_size = int(row[2]);
 
       curs.close();
 
@@ -439,6 +494,12 @@ class Instance(object):
       c = self._sqliteconn.cursor();
       
       c.executescript("""
+         
+         CREATE TABLE instance_parms(
+             key              TEXT
+            ,value            TEXT
+            ,PRIMARY KEY(key,value)
+         );
          
          /* dba_tablespaces */
          CREATE TABLE dba_tablespaces(
@@ -478,7 +539,6 @@ class Instance(object):
             ,user_bytes       NUMERIC
             ,user_blocks      NUMERIC
             ,extents_hmw      NUMERIC
-            ,db_block_size    NUMERIC
             ,PRIMARY KEY(file_id)
          );
          CREATE INDEX dba_data_files_i01 ON dba_data_files(
@@ -745,6 +805,7 @@ class Instance(object):
             ,sdo_index_table
          );
          
+         /* all_sdo_geor_sysdata */
          CREATE TABLE all_sdo_geor_sysdata(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -757,6 +818,7 @@ class Instance(object):
             ,table_name
          );
          
+         /* ctx_indexes */
          CREATE TABLE ctx_indexes(
              idx_owner        TEXT    NOT NULL
             ,idx_name         TEXT    NOT NULL
@@ -769,6 +831,7 @@ class Instance(object):
             ,idx_table
          );
          
+         /* sde_layers */
          CREATE TABLE sde_layers(
              owner            TEXT    NOT NULL
             ,table_name       TEXT    NOT NULL
@@ -994,6 +1057,44 @@ class Instance(object):
       toc   = self._sqliteconn.cursor();
       fromc = self._orcl.cursor();
       
+      ## instance_parms
+      str_to = """
+         INSERT INTO instance_parms(
+             key
+            ,value
+         ) VALUES (
+            ?,?
+         )
+      """;
+      toc.execute(
+          str_to
+         ,('use_flashback',self._use_flashback)
+      );
+      toc.execute(
+          str_to
+         ,('harvest_extents',self._harvest_extents)
+      );
+      toc.execute(
+          str_to
+         ,('dts_s',self._dts_s)
+      );
+      toc.execute(
+          str_to
+         ,('db_block_size',self._db_block_size)
+      );
+      toc.execute(
+          str_to
+         ,('has_spatial',self._has_spatial)
+      );
+      toc.execute(
+          str_to
+         ,('has_text',self._has_text)
+      );
+      toc.execute(
+          str_to
+         ,('has_sde',self._has_sde)
+      );
+      
       ## dba_tablespaces
       str_to = """
          INSERT INTO dba_tablespaces(
@@ -1079,9 +1180,8 @@ class Instance(object):
             ,user_bytes
             ,user_blocks
             ,extents_hmw
-            ,db_block_size
          ) VALUES (
-            ?,?,?,?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?
          )
       """;
       
@@ -1100,23 +1200,11 @@ class Instance(object):
       """;
       
       if self._harvest_extents:
-         str_from += """
-         ,b.extents_hmw 
-         """;
+         str_from += ",b.extents_hmw ";
       else:
-         str_from += """
-         ,NULL
-         """;
+         str_from += ",NULL";
       
       str_from += """   
-         ,(
-            SELECT 
-            b.value 
-            FROM 
-            v$parameter b
-            WHERE 
-            UPPER(b.name) = 'DB_BLOCK_SIZE'
-          ) AS db_block_size
          FROM
          dba_data_files a  
       """;
@@ -1126,7 +1214,7 @@ class Instance(object):
          LEFT JOIN (
             SELECT 
              bb.file_id
-            ,MAX(bb.block_id + bb.BLOCKS - 1) AS extents_hmw 
+            ,MAX(bb.block_id + bb.blocks - 1) AS extents_hmw 
             FROM 
             dba_extents bb
             GROUP BY 
@@ -1909,6 +1997,7 @@ class Instance(object):
           a.file_name
          ,a.file_id
          ,a.tablespace_name
+         ,a.blocks
          /* ------ ------ ------ */
          ,a.user_bytes AS bytes_allocated
          /* ------ ------ ------ */
@@ -1930,8 +2019,7 @@ class Instance(object):
          /* ------ ------ ------ */
          ,b.max_free_bytes
          /* ------ ------ ------ */
-         ,a.extents_hmw 
-         ,a.db_block_size
+         ,a.extents_hmw
          FROM 
          dba_data_files a
          LEFT JOIN (
@@ -1955,24 +2043,24 @@ class Instance(object):
          file_name       = row[0];
          file_id         = row[1];
          tablespace_name = row[2];
-         bytes_allocated = row[3];
-         bytes_used      = row[4];
-         bytes_free      = row[5];
-         max_free_bytes  = row[6];
-         extents_hmw     = row[7];
-         db_block_size   = row[8];
+         blocks          = row[3];
+         bytes_allocated = row[4];
+         bytes_used      = row[5];
+         bytes_free      = row[6];
+         max_free_bytes  = row[7];
+         extents_hmw     = row[8];
       
          self._datafiles[file_id] = Datafile(
              parent          = self
             ,file_name       = file_name
             ,file_id         = file_id
             ,tablespace_name = tablespace_name
+            ,blocks          = blocks
             ,bytes_allocated = bytes_allocated
             ,bytes_used      = bytes_used 
             ,bytes_free      = bytes_free
             ,max_free_bytes  = max_free_bytes
             ,extents_hmw     = extents_hmw
-            ,db_block_size   = db_block_size
          );
 
       self._tablespaces = {};
