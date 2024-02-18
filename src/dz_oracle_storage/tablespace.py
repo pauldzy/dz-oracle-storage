@@ -6,10 +6,10 @@ class Tablespace(object):
    def __init__(
        self
       ,parent
-      ,tablespace_name
-      ,bytes_allocated
-      ,bytes_used
-      ,bytes_free
+      ,tablespace_name: str
+      ,bytes_allocated: float
+      ,bytes_used     : float
+      ,bytes_free     : float
    ):
    
       self._parent           = parent;
@@ -146,6 +146,22 @@ class Tablespace(object):
    ) -> float:
       return self.bytes_comp_unk() / 1024 / 1024 / 1024;
       
+   ####
+   def bytes_resizeable(
+      self
+   ) -> float:
+      
+      rez = 0;
+      for item in self.datafiles_l:
+         rez += item.bytes_resizeable();         
+      return rez;
+   
+   ####
+   def gb_resizeable(
+      self
+   ) -> float:
+      return self.bytes_resizeable() / 1024 / 1024 / 1024;
+      
    ############################################################################
    def get_segment_size(
       self
@@ -215,6 +231,7 @@ class Tablespace(object):
           str_sql
          ,{'p01':self._tablespace_name}    
       );
+      
       for row in curs:
          tablespace_name = row[0];
          bytes_used      = row[1];

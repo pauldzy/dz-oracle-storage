@@ -16,14 +16,14 @@ class Instance(object):
    
    def __init__(
        self
-      ,name: str
-      ,username: str
-      ,password: str
-      ,hoststring: str
-      ,sqlite_location: str  = None
-      ,use_flashback: bool   = False
-      ,use_existing_db: bool = False
-      ,harvest_extents: bool = False
+      ,name            : str
+      ,username        : str
+      ,password        : str
+      ,hoststring      : str
+      ,sqlite_location : str  = None
+      ,use_flashback   : bool = False
+      ,use_existing_db : bool = False
+      ,harvest_extents : bool = False
    ):
    
       self._name            = name;
@@ -35,14 +35,14 @@ class Instance(object):
       self._use_existing_db = use_existing_db
       self._harvest_extents = harvest_extents;
       
-      self._dts                = None;
-      self._dts_s: str         = None;
-      self._db_block_size: int = None;
+      self._dts                 = None;
+      self._dts_s        : str  = None;
+      self._db_block_size: int  = None;
       
-      self._orcl               = None;
-      self._has_spatial: bool  = None;
-      self._has_text: bool     = None;
-      self._has_sde: bool      = None;      
+      self._orcl                = None;
+      self._has_spatial  : bool = None;
+      self._has_text     : bool = None;
+      self._has_sde      : bool = None;      
 
       dbfile = slugify(self._name) + '.db';
       if self._sqlite_location is not None:
@@ -879,7 +879,9 @@ class Instance(object):
             ,partitioned      TEXT
             ,iot_type         TEXT
             ,secondary        TEXT
+            ,temporary        TEXT
             ,isgeor           TEXT
+            ,lob_securefile   TEXT
             ,PRIMARY KEY(owner,segment_name,partition_name)
          );
          CREATE INDEX segments_compression_i01 ON segments_compression(
@@ -1790,7 +1792,10 @@ class Instance(object):
             ,partitioned
             ,iot_type
             ,secondary
+            ,temporary
             ,isgeor
+            
+            ,lob_securefile
          )
          SELECT
           bbb.owner
@@ -1924,6 +1929,7 @@ class Instance(object):
           ELSE
             NULL
           END AS secondary
+         ,ccc.temporary
           
          ,CASE 
           WHEN fff.geor_table_name IS NOT NULL
@@ -1935,6 +1941,8 @@ class Instance(object):
           ELSE
             NULL
           END AS isgeor
+          
+         ,hhh.securefile
           
          FROM
          dba_segments bbb
@@ -1977,6 +1985,82 @@ class Instance(object):
          ON
              bbb.owner          = hhh.owner
          AND bbb.segment_name   = hhh.segment_name;
+      """;
+      
+      toc.execute(str_to);
+      
+      str_to = """
+         INSERT INTO segments_compression(
+             owner
+            ,segment_name
+            ,partition_name
+            ,segment_type
+            ,tablespace_name
+            
+            ,compression
+            ,src_compression
+            ,src_compress_for
+            
+            ,bytes_used
+            
+            ,partitioned
+            ,iot_type
+            ,secondary
+            ,temporary
+            ,isgeor
+         )
+         SELECT
+          a.owner
+         ,a.table_name
+         ,NULL
+         ,'TABLE'
+         ,a.tablespace_name
+         ,'NA'
+         ,a.compression
+         ,a.compress_for
+         ,0
+         ,a.partitioned
+         ,a.iot_type
+         ,a.secondary
+         ,a.temporary
+         ,CASE 
+          WHEN b.geor_table_name IS NOT NULL
+          THEN
+            'GEOR'
+          WHEN c.rdt_table_name IS NOT NULL
+          THEN
+            'RDT'
+          ELSE
+            NULL
+          END AS isgeor
+         FROM
+         dba_tables a
+         LEFT JOIN (
+            SELECT
+             bb.owner      AS geor_table_owner
+            ,bb.table_name AS geor_table_name
+            FROM
+            all_sdo_geor_sysdata bb
+            GROUP BY
+             bb.owner
+            ,bb.table_name
+         ) b
+         ON
+             a.owner          = b.geor_table_owner
+         AND a.table_name     = b.geor_table_name
+         LEFT JOIN
+         all_sdo_geor_sysdata c
+         ON
+             a.owner          = c.owner
+         AND a.table_name     = c.rdt_table_name
+         WHERE
+         (a.owner,a.table_name) NOT IN (
+            SELECT
+             d.owner
+            ,d.segment_name
+            FROM
+            dba_segments d
+         );
       """;
       
       toc.execute(str_to);
@@ -2293,7 +2377,7 @@ class Instance(object):
    ############################################################################
    def add_schema_group(
        self
-      ,schema_group_name: str
+      ,schema_group_name : str
       ,ignore_tablespaces: bool = None
    ):
    

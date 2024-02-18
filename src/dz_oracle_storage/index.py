@@ -7,15 +7,15 @@ class Index(object):
    def __init__(
        self
       ,parent
-      ,index_owner
-      ,index_name
-      ,index_type       = None
-      ,table_owner      = None
-      ,table_name       = None
-      ,index_parameters = None
-      ,ityp_owner       = None
-      ,ityp_name        = None
-      ,index_columns    = None
+      ,index_owner     : str
+      ,index_name      : str
+      ,index_type      : str = None
+      ,table_owner     : str = None
+      ,table_name      : str = None
+      ,index_parameters: str = None
+      ,ityp_owner      : str = None
+      ,ityp_name       : str = None
+      ,index_columns   : str = None
    ):
    
       self._parent           = parent;
@@ -122,14 +122,14 @@ class Index(object):
    def rebuild(
        self
       ,rebuild_spatial: bool = False
-      ,set_compression: str = None
-      ,move_tablespace: str = None
+      ,set_compression: str  = None
+      ,move_tablespace: str  = None
    ) -> list[str]:
    
       rez = [];
 
       if self.index_type == 'DOMAIN':
-            
+ 
          if self.ityp_owner == 'MDSYS' and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
             
             if move_tablespace is None:

@@ -8,12 +8,12 @@ class Schema(object):
    def __init__(
        self
       ,parent
-      ,schema_name
-      ,bytes_used
-      ,bytes_comp_none
-      ,bytes_comp_low
-      ,bytes_comp_high
-      ,bytes_comp_unk
+      ,schema_name    : str
+      ,bytes_used     : float
+      ,bytes_comp_none: float
+      ,bytes_comp_low : float
+      ,bytes_comp_high: float
+      ,bytes_comp_unk : float
    ):
    
       self._parent             = parent;

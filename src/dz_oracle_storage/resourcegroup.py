@@ -133,7 +133,7 @@ class ResourceGroup(object):
    def add_resource(
        self
       ,table_owner: str
-      ,table_name: str
+      ,table_name : str
    ):
    
       if self._resources is None:
@@ -149,7 +149,7 @@ class ResourceGroup(object):
    def delete_resource(
        self
       ,table_owner: str
-      ,table_name: str
+      ,table_name : str
    ):
    
       if self._resources is None:
@@ -176,7 +176,7 @@ class ResourceGroup(object):
    ############################################################################
    def load_resources_from_schema(
        self
-      ,schema_name: str
+      ,schema_name  : str
       ,exclude_types: list = None
    ):
    

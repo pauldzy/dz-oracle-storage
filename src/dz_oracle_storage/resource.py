@@ -8,33 +8,44 @@ class Resource(object):
    def __init__(
        self
       ,parent
-      ,table_owner
-      ,table_name
-      ,partition_name   = None
-      ,segment_type     = None
-      ,tablespace_name  = None
-      ,compression      = None
-      ,src_compression  = None
-      ,src_compress_for = None
-      ,bytes_used       = None
-      ,bytes_comp_none  = None
-      ,bytes_comp_low   = None
-      ,bytes_comp_high  = None
-      ,bytes_comp_unk   = None
-      ,partitioned      = None
-      ,iot_type         = None
-      ,temporary        = None
-      ,secondary        = None
-      ,isgeor           = None
+      ,table_owner     :str
+      ,table_name      :str
+      ,partition_name  :str = None
+      ,segment_type    :str = None
+      ,tablespace_name :str = None
+      ,compression     :str = None
+      ,src_compression :str = None
+      ,src_compress_for:str = None
+      ,bytes_used      :int = None
+      ,bytes_comp_none :int = None
+      ,bytes_comp_low  :int = None
+      ,bytes_comp_high :int = None
+      ,bytes_comp_unk  :int = None
+      ,partitioned     :str = None
+      ,iot_type        :str = None
+      ,temporary       :str = None
+      ,secondary       :str = None
+      ,isgeor          :str = None
    ):
-   
-      self._parent          = parent;
-      self._sqliteconn      = parent._sqliteconn;
-      self._table_owner     = table_owner;
-      self._table_name      = table_name;
-      self._temporary       = temporary;
-      self._isgeor          = isgeor;
-      self._secondaries     = {};
+    
+      self._parent           = parent;
+      self._sqliteconn       = parent._sqliteconn;
+      self._table_owner      = table_owner;
+      self._table_name       = table_name;
+      self._partition_name   = partition_name;
+      self._segment_type     = segment_type;
+      self._tablespace_name  = tablespace_name;
+      self._compression      = compression;
+      self._src_compression  = src_compression;
+      self._src_compress_for = src_compress_for;
+      
+      self._partitioned      = partitioned;
+      self._iot_type         = iot_type;
+      self._temporary        = temporary;
+      self._secondary        = secondary;      
+      self._isgeor           = isgeor;
+      
+      self._secondaries      = {};
       
       if secondary is None or secondary != 'Y':
          # Verify item is eligible resource item
@@ -110,11 +121,13 @@ class Resource(object):
          ,compression      = compression
          ,src_compression  = src_compression
          ,src_compress_for = src_compress_for
+         
          ,bytes_used       = bytes_used
          ,bytes_comp_none  = bytes_comp_none
          ,bytes_comp_low   = bytes_comp_low
          ,bytes_comp_high  = bytes_comp_high
          ,bytes_comp_unk   = bytes_comp_unk
+         
          ,partitioned      = partitioned
          ,iot_type         = iot_type
          ,temporary        = temporary
@@ -241,12 +254,13 @@ class Resource(object):
    ) -> list[str]:
       rez = [];
       rebuild_indx_flg = False;
-      
+    
       if recipe in ['REBUILDSPX']:
          rebuild_spatial = True;
       
       if recipe in ['HIGH','SHRINKSFLOB']:
          for item in self.secondaries.values():
+            
             if  item.segment_type == 'LOBSEGMENT'      \
             and (                                      \
                item._parent_secondary is None or       \
@@ -260,6 +274,9 @@ class Resource(object):
                if r is not None:
                   rebuild_indx_flg = True;
                   rez = rez + r;
+                  
+            else:
+               rebuild_indx_flg = False;
       
       if recipe in ['HIGH']:      
          for item in self.secondaries.values():
@@ -269,7 +286,8 @@ class Resource(object):
                item._parent_secondary is None or       \
                item._parent_secondary.secondary == 'N' \
             )                                          \
-            and item.iot_type is None:
+            and item.iot_type is None                  \
+            and item.temporary == 'N':
                r = item.generate_ddl(
                    recipe = recipe
                   ,rebuild_indx_flg = rebuild_indx_flg
@@ -278,6 +296,9 @@ class Resource(object):
                if r is not None:
                   rebuild_indx_flg = True;
                   rez = rez + r;
+                  
+            else:
+               rebuild_indx_flg = False;
              
       if recipe in ['HIGH','REBUILDSPX','SHRINKSFLOB']:
          for item in self.secondaries.values():
@@ -287,8 +308,9 @@ class Resource(object):
                item._parent_secondary is None or       \
                item._parent_secondary.secondary == 'N' \
             )                                          \
-            and item._parent_secondary.iot_type is None:
-    
+            and item._parent_secondary.iot_type is None\
+            and item._parent_secondary.temporary == 'N':
+               
                r = item.generate_ddl(
                    recipe = recipe
                   ,rebuild_indx_flg = rebuild_indx_flg

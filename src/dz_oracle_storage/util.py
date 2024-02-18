@@ -3,7 +3,7 @@ import unicodedata,re;
     
 ############################################################################### 
 def slugify(
-    value: str
+    value        : str
    ,allow_unicode: bool = False
 ) -> str:
    """
@@ -52,11 +52,16 @@ def read_spatial_parms(
 ) -> {}:
 
    rez = {};
-   if parms is None or parms == "":
+   if parms is None:
       return rez;
       
-   parms1 = parms.upper().strip();  
+   parms1 = parms.strip();
+   if parms1 == "":
+      return rez;
+      
+   parms1 = parms1.upper().strip();  
    parms1 = parms1.replace('  ',' ');
+   parms1 = parms1.replace(' , ',' ');
    parms1 = parms1.replace(', ',' ');
    parms1 = parms1.replace(' = ','=');
    parms1 = parms1.replace(' =','=');
@@ -71,7 +76,7 @@ def read_spatial_parms(
    
 ###############################################################################
 def write_spatial_parms(
-    parm_hash: dict
+    parm_hash   : dict
    ,inject_parms: dict = None
 ) -> str:
 
@@ -95,7 +100,7 @@ def write_spatial_parms(
    
 ###############################################################################
 def spatial_parms(
-    parms: str
+    parms       : str
    ,inject_parms: dict = None
 ) -> str:
 
@@ -103,7 +108,7 @@ def spatial_parms(
       parms = parms
    );
    
-   if parm_hash is None:
+   if parm_hash is None or parm_hash == {}:
       return "";
    
    rez = write_spatial_parms(

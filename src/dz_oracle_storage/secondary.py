@@ -1,5 +1,7 @@
 import os,sys;
+from .table import Table;
 from .index import Index;
+from .lob   import Lob;
 
 ############################################################################### 
 class Secondary(object):
@@ -8,37 +10,38 @@ class Secondary(object):
        self
       ,parent_resource
       ,parent_secondary
-      ,depth
-      ,owner
-      ,segment_name
-      ,partition_name    = None
-      ,segment_type      = None
-      ,tablespace_name   = None
-      ,compression       = None
-      ,src_compression   = None
-      ,src_compress_for  = None
-      ,bytes_used        = None
-      ,bytes_comp_none   = None
-      ,bytes_comp_low    = None
-      ,bytes_comp_high   = None
-      ,bytes_comp_unk    = None
-      ,index_type        = None
-      ,index_parameters  = None
-      ,index_table_owner = None
-      ,index_table_name  = None
-      ,index_columns     = None
-      ,ityp_owner        = None
-      ,ityp_name         = None
-      ,partitioned       = None
-      ,iot_type          = None
-      ,temporary         = None
-      ,secondary         = None
-      ,isgeor            = None
-      ,lob_table_name    = None
-      ,lob_column_name   = None
-      ,lob_varray_owner  = None
-      ,lob_varray_name   = None
-      ,lob_securefile    = None
+      ,depth            :int 
+      ,owner            :str
+      ,segment_name     :str
+      ,partition_name   :str = None
+      ,segment_type     :str = None
+      ,tablespace_name  :str = None
+      ,compression      :str = None
+      ,src_compression  :str = None
+      ,src_compress_for :str = None
+      ,bytes_used       :int = None
+      ,bytes_comp_none  :int = None
+      ,bytes_comp_low   :int = None
+      ,bytes_comp_high  :int = None
+      ,bytes_comp_unk   :int = None
+      ,index_type       :str = None
+      ,index_parameters :str = None
+      ,index_table_owner:str = None
+      ,index_table_name :str = None
+      ,index_columns    :str = None
+      ,ityp_owner       :str = None
+      ,ityp_name        :str = None
+      ,partitioned      :str = None
+      ,iot_type         :str = None
+      ,temporary        :str = None
+      ,secondary        :str = None
+      ,isgeor           :str = None
+      ,lob_table_name   :str = None
+      ,lob_column_name  :str = None
+      ,lob_index_name   :str = None
+      ,lob_varray_owner :str = None
+      ,lob_varray_name  :str = None
+      ,lob_securefile   :str = None
    ):
    
       self._parent_resource  = parent_resource;
@@ -53,7 +56,7 @@ class Secondary(object):
       self._compression      = compression;
       self._src_compression  = src_compression;
       self._src_compress_for = src_compress_for;
-      
+
       if bytes_used is None:
          self._bytes_used   = 0;
       else:
@@ -93,6 +96,7 @@ class Secondary(object):
       self._isgeor            = isgeor;
       self._lob_table_name    = lob_table_name;
       self._lob_column_name   = lob_column_name;
+      self._lob_index_name    = lob_index_name;
       self._lob_varray_owner  = lob_varray_owner;
       self._lob_varray_name   = lob_varray_name;
       self._lob_securefile    = lob_securefile;      
@@ -344,31 +348,27 @@ class Secondary(object):
             str_sql = """
                SELECT
                 a.owner
-               ,a.table_name
-               ,b.partition_name
-               ,b.segment_type
-               ,b.tablespace_name
-               ,b.compression
-               ,b.src_compression
-               ,b.src_compress_for
-               ,b.bytes_used
-               ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
-               ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
-               ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
-               ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+               ,a.segment_name
+               ,a.partition_name
+               ,a.segment_type
+               ,a.tablespace_name
+               ,a.compression
+               ,a.src_compression
+               ,a.src_compress_for
+               ,a.bytes_used
+               ,CASE WHEN a.compression = 'NONE' THEN a.bytes_used ELSE 0 END AS bytes_comp_none
+               ,CASE WHEN a.compression = 'LOW'  THEN a.bytes_used ELSE 0 END AS bytes_comp_low
+               ,CASE WHEN a.compression = 'HIGH' THEN a.bytes_used ELSE 0 END AS bytes_comp_high
+               ,CASE WHEN a.compression = 'UNK'  THEN a.bytes_used ELSE 0 END AS bytes_comp_unk
                ,a.iot_type
                ,a.temporary
-               ,b.isgeor
+               ,a.isgeor
                FROM
-               dba_tables a
-               LEFT JOIN
-               segments_compression b
-               ON
-                   a.owner         = b.owner
-               AND a.table_name    = b.segment_name
+               segments_compression a
                WHERE
                    a.owner         = :p01
-               AND a.table_name LIKE :p02
+               AND a.segment_name LIKE :p02
+               AND a.segment_type = 'TABLE'
             """;
             
             curs.execute(
@@ -445,89 +445,91 @@ class Secondary(object):
                domain_stub  = row[1];
                
             if domain_stub is None:
-               raise Exception('mdsys spatial index error');
+               print(
+                   '== mdsys spatial index error ==\n' +
+                   '   ' + self._owner + '.' + self._segment_name + ' on ' + 
+                   self._index_table_owner + '.' + self._index_table_name + '\n'
+                  ,file=sys.stderr
+               );
             
-            str_sql = """
-               SELECT
-                a.owner
-               ,a.table_name
-               ,b.partition_name
-               ,b.segment_type
-               ,b.tablespace_name
-               ,b.compression
-               ,b.src_compression
-               ,b.src_compress_for
-               ,b.bytes_used
-               ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
-               ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
-               ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
-               ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
-               ,a.iot_type
-               ,a.temporary
-               ,b.isgeor
-               FROM
-               dba_tables a
-               LEFT JOIN
-               segments_compression b
-               ON
-                   a.owner        = b.owner
-               AND a.table_name   = b.segment_name
-               WHERE
-                   a.owner        = :p01
-               AND a.table_name IN (:p02,:p03,:p04)
-            """;
-            
-            curs.execute(
-                str_sql
-               ,{
-                   'p01':self._owner
-                  ,'p02':domain_stub
-                  ,'p03':domain_stub.replace("MDRT","MDXT")
-                  ,'p04':domain_stub.replace("MDRT","MDTP")
-                }
-            );
-            
-            for row in curs:
-               table_owner      = row[0];
-               table_name       = row[1];
-               partition_name   = row[2];
-               segment_type     = row[3];
-               tablespace_name  = row[4];
-               compression      = row[5];
-               src_compression  = row[6];
-               src_compress_for = row[7];
-               bytes_used       = row[8];
-               bytes_comp_none  = row[9];
-               bytes_comp_low   = row[10];
-               bytes_comp_high  = row[11];
-               bytes_comp_unk   = row[12];
-               iot_type         = row[13];
-               temporary        = row[14];
-               isgeor           = row[15];
+            else:
+               str_sql = """
+                  SELECT
+                   a.owner
+                  ,a.segment_name
+                  ,a.partition_name
+                  ,a.segment_type
+                  ,a.tablespace_name
+                  ,a.compression
+                  ,a.src_compression
+                  ,a.src_compress_for
+                  ,a.bytes_used
+                  ,CASE WHEN a.compression = 'NONE' THEN a.bytes_used ELSE 0 END AS bytes_comp_none
+                  ,CASE WHEN a.compression = 'LOW'  THEN a.bytes_used ELSE 0 END AS bytes_comp_low
+                  ,CASE WHEN a.compression = 'HIGH' THEN a.bytes_used ELSE 0 END AS bytes_comp_high
+                  ,CASE WHEN a.compression = 'UNK'  THEN a.bytes_used ELSE 0 END AS bytes_comp_unk
+                  ,a.iot_type
+                  ,a.temporary
+                  ,a.isgeor
+                  FROM
+                  segments_compression a
+                  WHERE
+                      a.owner        = :p01
+                  AND a.segment_name IN (:p02,:p03,:p04)
+                  AND a.segment_type = 'TABLE'
+               """;
                
-               if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
-                  parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
-                      parent_resource  = parent_resource
-                     ,parent_secondary = self
-                     ,depth            = depth + 1
-                     ,owner            = table_owner
-                     ,segment_name     = table_name
-                     ,partition_name   = partition_name
-                     ,segment_type     = segment_type
-                     ,tablespace_name  = tablespace_name
-                     ,compression      = compression
-                     ,src_compression  = src_compression
-                     ,src_compress_for = src_compress_for
-                     ,bytes_used       = bytes_used
-                     ,bytes_comp_none  = bytes_comp_none
-                     ,bytes_comp_low   = bytes_comp_low
-                     ,bytes_comp_high  = bytes_comp_high
-                     ,bytes_comp_unk   = bytes_comp_unk
-                     ,iot_type         = iot_type
-                     ,temporary        = temporary
-                     ,isgeor           = isgeor
-                     ,secondary        = 'Y'
-                  );
+               curs.execute(
+                   str_sql
+                  ,{
+                      'p01':self._owner
+                     ,'p02':domain_stub
+                     ,'p03':domain_stub.replace("MDRT","MDXT")
+                     ,'p04':domain_stub.replace("MDRT","MDTP")
+                   }
+               );
+               
+               for row in curs:
+                  table_owner      = row[0];
+                  table_name       = row[1];
+                  partition_name   = row[2];
+                  segment_type     = row[3];
+                  tablespace_name  = row[4];
+                  compression      = row[5];
+                  src_compression  = row[6];
+                  src_compress_for = row[7];
+                  bytes_used       = row[8];
+                  bytes_comp_none  = row[9];
+                  bytes_comp_low   = row[10];
+                  bytes_comp_high  = row[11];
+                  bytes_comp_unk   = row[12];
+                  iot_type         = row[13];
+                  temporary        = row[14];
+                  isgeor           = row[15];
+                  
+                  if (table_owner,table_name,partition_name) not in parent_resource._secondaries:
+                     parent_resource._secondaries[(table_owner,table_name,partition_name)] = Secondary(
+                         parent_resource  = parent_resource
+                        ,parent_secondary = self
+                        ,depth            = depth + 1
+                        ,owner            = table_owner
+                        ,segment_name     = table_name
+                        ,partition_name   = partition_name
+                        ,segment_type     = segment_type
+                        ,tablespace_name  = tablespace_name
+                        ,compression      = compression
+                        ,src_compression  = src_compression
+                        ,src_compress_for = src_compress_for
+                        ,bytes_used       = bytes_used
+                        ,bytes_comp_none  = bytes_comp_none
+                        ,bytes_comp_low   = bytes_comp_low
+                        ,bytes_comp_high  = bytes_comp_high
+                        ,bytes_comp_unk   = bytes_comp_unk
+                        ,iot_type         = iot_type
+                        ,temporary        = temporary
+                        ,isgeor           = isgeor
+                        ,secondary        = 'Y'
+                     );
 
          elif self._ityp_owner == 'SDE' and self._ityp_name == 'ST_SPATIAL_INDEX':
             str_sql = """
@@ -558,30 +560,26 @@ class Secondary(object):
                SELECT
                 a.owner
                ,a.table_name
-               ,b.partition_name
-               ,b.segment_type
-               ,b.tablespace_name
-               ,b.compression
-               ,b.src_compression
-               ,b.src_compress_for
-               ,b.bytes_used
-               ,CASE WHEN b.compression = 'NONE' THEN b.bytes_used ELSE 0 END AS bytes_comp_none
-               ,CASE WHEN b.compression = 'LOW'  THEN b.bytes_used ELSE 0 END AS bytes_comp_low
-               ,CASE WHEN b.compression = 'HIGH' THEN b.bytes_used ELSE 0 END AS bytes_comp_high
-               ,CASE WHEN b.compression = 'UNK'  THEN b.bytes_used ELSE 0 END AS bytes_comp_unk
+               ,a.partition_name
+               ,a.segment_type
+               ,a.tablespace_name
+               ,a.compression
+               ,a.src_compression
+               ,a.src_compress_for
+               ,a.bytes_used
+               ,CASE WHEN a.compression = 'NONE' THEN a.bytes_used ELSE 0 END AS bytes_comp_none
+               ,CASE WHEN a.compression = 'LOW'  THEN a.bytes_used ELSE 0 END AS bytes_comp_low
+               ,CASE WHEN a.compression = 'HIGH' THEN a.bytes_used ELSE 0 END AS bytes_comp_high
+               ,CASE WHEN a.compression = 'UNK'  THEN a.bytes_used ELSE 0 END AS bytes_comp_unk
                ,a.iot_type
                ,a.temporary
-               ,b.isgeor
+               ,a.isgeor
                FROM
-               dba_tables a
-               LEFT JOIN
-               segments_compression b
-               ON
-                   a.owner        = b.owner
-               AND a.table_name   = b.segment_name
+               segments_compression a
                WHERE
                    a.owner        = :p01
                AND a.table_name   = :p02
+               AND a.segment_type = 'TABLE'
             """;
             
             curs.execute(
@@ -887,6 +885,10 @@ class Secondary(object):
    @property
    def lob_column_name(self):
       return self._lob_column_name;
+      
+   @property
+   def lob_index_name(self):
+      return self._lob_index_name;
 
    @property
    def lob_varray_owner(self):
@@ -977,69 +979,101 @@ class Secondary(object):
       ,rebuild_indx_flg: bool = False
       ,rebuild_spatial: bool = False
    ) -> list[str]:
-   
-      if recipe == 'HIGH':
       
-         if self.isgeor is not None or \
+      if recipe == 'HIGH':
+
+         if self.segment_name in ['JAVA$OPTIONS']:
+            # Don't touch system tables
+            None;
+         
+         elif self.isgeor is not None or \
          (self._parent_secondary is not None and self._parent_secondary.isgeor is not None):
             # Pass on all compression for georaster managed items
-            None;
+            rez = [];
+            rez.append('/* GeoRaster Table ' + self.owner + '.' + self.lob_table_name + ' */');
+            return rez;
       
          elif self.segment_type == 'LOBSEGMENT' and self.compression != 'HIGH' \
-         and (self._parent_secondary is None or self._parent_secondary.secondary == 'N'):
-      
-            if self.lob_varray_name is not None:
-               rez = 'ALTER TABLE ' + self.owner + '.' + self.lob_table_name + ' ' \
-                  + 'MOVE VARRAY ' + self.lob_column_name + ' ' \
-                  + 'STORE AS SECUREFILE LOB(COMPRESS HIGH);';
-               return [rez];
-               
-            else:
-               rez = 'ALTER TABLE ' + self.owner + '.' + self.lob_table_name + ' ' \
-                  + 'MOVE LOB(' + self.lob_column_name + ') ' \
-                  + 'STORE AS SECUREFILE(COMPRESS HIGH);';
-               return [rez];
-               
-         elif self.segment_type == 'TABLE' and self.compression != 'HIGH':
+         and (                                                            \
+               self._parent_secondary is None                             \
+            or self._parent_secondary.secondary is None                   \
+            or self._parent_secondary.secondary == 'N'                    \
+         ):
+            rez = Lob(
+                parent            = self._parent_resource
+               ,owner             = self.owner
+               ,table_name        = self.lob_table_name
+               ,column_name       = self.lob_column_name
+               ,segment_name      = self.segment_name
+               ,tablespace_name   = self.tablespace_name
+               ,index_name        = self.lob_index_name
+               ,securefile        = self.lob_securefile
+               ,compression       = self.compression
+               ,src_compression   = self.src_compression
+               ,varray_type_owner = self.lob_varray_owner
+               ,varray_type_name  = self.lob_varray_name
+            ).rebuild(
+               set_compression = 'HIGH'
+            );
             
-            if self._parent_secondary is not None:
-               if self._parent_secondary.isgeor is not None:
-                  None;
+            return rez;
+                       
+         elif self.segment_type == 'TABLE'                            \
+         and (self.temporary   is None or self.temporary   != 'Y'):
+            
+            if self.compression != 'HIGH':
                
-               elif self._parent_secondary.secondary == 'N':
+               if self.iot_type == 'IOT':
                   rez = [];
                   
+                  rez.append('/* IOT TABLE ' + self.owner + '.' + self.segment_name + ' */ ');            
+                  return rez;
+               
+               elif self._parent_secondary is not None:
+                  if self._parent_secondary.isgeor is not None:
+                     None;
+                  
+                  elif self._parent_secondary.secondary is None \
+                  or   self._parent_secondary.secondary == 'N':
+                     rez = [];
+                     
+                     rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
+                        + 'MOVE COMPRESS FOR OLTP;');            
+                     return rez;
+                     
+               else:
+                  rez = [];
+                     
                   rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
                      + 'MOVE COMPRESS FOR OLTP;');            
                   return rez;
-                  
-            else:
-               rez = [];
-                  
-               rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
-                  + 'MOVE COMPRESS FOR OLTP;');            
-               return rez;
                
-         elif self.segment_type == 'INDEX' and self.compression != 'HIGH' \
-         and (self._parent_secondary is None or self._parent_secondary.secondary == 'N'):
+         elif self.segment_type == 'INDEX'                                \
+         and (                                                            \
+               self._parent_secondary is None                             \
+            or self._parent_secondary.secondary is None                   \
+            or self._parent_secondary.secondary == 'N'                    \
+         ):
             
-            rez = Index(
-                parent           = self
-               ,index_owner      = self.owner
-               ,index_name       = self.segment_name
-               ,index_type       = self.index_type
-               ,table_owner      = self.index_table_owner
-               ,table_name       = self.index_table_name
-               ,index_parameters = self.index_parameters
-               ,ityp_owner       = self.ityp_owner
-               ,ityp_name        = self.ityp_name
-               ,index_columns    = self.index_columns
-            ).rebuild(
-                rebuild_spatial = rebuild_spatial
-               ,set_compression = 'HIGH'    
-            );
- 
-            return rez;                                      
+            if self.index_type != 'BITMAP' and self.compression != 'HIGH':
+            
+               rez = Index(
+                   parent           = self
+                  ,index_owner      = self.owner
+                  ,index_name       = self.segment_name
+                  ,index_type       = self.index_type
+                  ,table_owner      = self.index_table_owner
+                  ,table_name       = self.index_table_name
+                  ,index_parameters = self.index_parameters
+                  ,ityp_owner       = self.ityp_owner
+                  ,ityp_name        = self.ityp_name
+                  ,index_columns    = self.index_columns
+               ).rebuild(
+                   rebuild_spatial = rebuild_spatial
+                  ,set_compression = 'HIGH'    
+               );
+    
+               return rez;                                      
                
       elif recipe == 'REBUILDSPX':
          
@@ -1067,18 +1101,22 @@ class Secondary(object):
       elif recipe == 'SHRINKSFLOB':
    
          if self.segment_type == 'LOBSEGMENT' and self.lob_securefile == 'YES':
-      
-            if self.lob_varray_name is not None:
-               rez = 'ALTER TABLE ' + self.owner + '.' + self.lob_table_name + ' ' \
-                  + 'MOVE VARRAY ' + self.lob_column_name + ' ' \
-                  + 'STORE AS SECUREFILE LOB(TABLESPACE ' + self.tablespace_name + ');';
-               return [rez];
-               
-            else:
-               rez = 'ALTER TABLE ' + self.owner + '.' + self.lob_table_name + ' ' \
-                  + 'MOVE LOB(' + self.lob_column_name + ') ' \
-                  + 'STORE AS (TABLESPACE ' + self.tablespace_name + ');';
-               return [rez]; 
+            rez = Lob(
+                parent            = self._parent
+               ,owner             = self.owner
+               ,table_name        = self.lob_table_name
+               ,column_name       = self.lob_column_name
+               ,segment_name      = self.segment_name
+               ,tablespace_name   = self.tablespace_name
+               ,index_name        = self.lob_index_name
+               ,securefile        = self.lob_securefile
+               ,compression       = self.compression
+               ,src_compression   = self.src_compression
+               ,varray_type_owner = self.lob_varray_owner
+               ,varray_type_name  = self.lob_varray_name
+            ).rebuild();
+            
+            return rez; 
       
       if rebuild_indx_flg:
          

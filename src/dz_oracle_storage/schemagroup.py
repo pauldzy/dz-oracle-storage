@@ -8,7 +8,7 @@ class SchemaGroup(object):
    def __init__(
        self
       ,parent
-      ,schema_group_name
+      ,schema_group_name: str
    ):
    
       self._parent              = parent
@@ -151,7 +151,7 @@ class SchemaGroup(object):
    ############################################################################
    def add_schema(
        self
-      ,schema_name
+      ,schema_name: str
    ):
    
       if self._schemas is None:
@@ -165,7 +165,7 @@ class SchemaGroup(object):
    ############################################################################
    def delete_schema(
        self
-      ,schema_name
+      ,schema_name: str
    ):
    
       if self._schemas is None:

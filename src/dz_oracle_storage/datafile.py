@@ -1,6 +1,7 @@
 import os,sys,math;
 from .table import Table;
 from .index import Index;
+from .lob   import Lob;
 
 ############################################################################### 
 class Datafile(object):
@@ -8,15 +9,15 @@ class Datafile(object):
    def __init__(
        self
       ,parent
-      ,file_name: str
-      ,file_id: int
+      ,file_name      : str
+      ,file_id        : int
       ,tablespace_name: str
-      ,blocks: int
-      ,bytes_allocated: int
-      ,bytes_used: int
-      ,bytes_free: int
-      ,max_free_bytes: int
-      ,extents_hmw:int   = None
+      ,blocks         : int
+      ,bytes_allocated: float
+      ,bytes_used     : float
+      ,bytes_free     : float
+      ,max_free_bytes : float
+      ,extents_hmw    : int   = None
    ):
    
       self._parent             = parent;
@@ -108,9 +109,9 @@ class Datafile(object):
    def move_from_hw(
        self
       ,target_tablespace_name: str
-      ,result_count: int     = None
-      ,result_gb: float      = None
-      ,rebuild_spatial: bool = True
+      ,result_count          : int   = None
+      ,result_gb             : float = None
+      ,rebuild_spatial       : bool  = True
    ) -> list[str]:
    
       if not self._parent.harvest_extents:
@@ -202,16 +203,19 @@ class Datafile(object):
                str_sql2 = """
                   SELECT
                    a.owner
-                  ,a.table_name
+                  ,a.segment_name AS table_name
                   ,a.partitioned
+                  ,a.tablespace_name
+                  ,a.compression
                   ,a.iot_type
                   ,a.temporary
                   ,a.secondary
                   FROM
-                  dba_tables a
+                  segments_compression a
                   WHERE
-                      a.owner      = :p01
-                  AND a.table_name = :p02
+                      a.owner        = :p01
+                  AND a.segment_name = :p02
+                  AND a.segment_type = 'TABLE'
                """;
                
                curs2.execute(
@@ -222,23 +226,38 @@ class Datafile(object):
                    }
                );
                
-               table_owner       = None;
-               table_name        = None;
-               table_partitioned = None;
-               table_iot_type    = None;
-               table_temporary   = None;
-               table_secondary   = None;
+               table_owner           = None;
+               table_name            = None;
+               table_partitioned     = None;
+               table_tablespace_name = None;
+               table_compression     = None;
+               table_iot_type        = None;
+               table_temporary       = None;
+               table_secondary       = None;
                for row in curs2:
-                  table_owner       = row[0];
-                  table_name        = row[1];
-                  table_partitioned = row[2];
-                  table_iot_type    = row[3];
-                  table_temporary   = row[4];
-                  table_secondary   = row[5];
+                  table_owner           = row[0];
+                  table_name            = row[1];
+                  table_partitioned     = row[2];
+                  table_tablespace_name = row[3];
+                  table_compression     = row[4];
+                  table_iot_type        = row[5];
+                  table_temporary       = row[6];
+                  table_secondary       = row[7];
                
                if table_secondary == 'N':
-                  rez.append('ALTER TABLE ' + owner + '.' + segment_name + ' MOVE TABLESPACE ' + target_tablespace_name + ';');
-                  rez = rez + Table(self._parent,owner,segment_name).rebuild_indexes(rebuild_spatial=rebuild_spatial);
+                  tbl = Table(
+                      parent          = self._parent
+                     ,table_owner     = table_owner
+                     ,table_name      = table_name
+                     ,tablespace_name = table_tablespace_name
+                     ,compression     = table_compression
+                  );
+                  rez = rez + tbl.rebuild(
+                     move_tablespace = target_tablespace_name
+                  );
+                  rez = rez + tbl.rebuild_indexes(
+                     rebuild_spatial = rebuild_spatial
+                  );
                   
                else:
                   str_sql2 = """
@@ -319,39 +338,64 @@ class Datafile(object):
                    a.owner
                   ,a.table_name
                   ,a.column_name
+                  ,a.segment_name
+                  ,a.tablespace_name
+                  ,a.index_name
                   ,a.securefile
-                  ,b.type_owner
-                  ,b.type_name
-                  FROM
-                  dba_lobs a
+                  ,b.compression
+                  ,b.src_compression
+                  ,a.varray_type_owner
+                  ,a.varray_type_name
+                  FROM (
+                     SELECT
+                      aa.owner
+                     ,aa.table_name
+                     ,aa.column_name
+                     ,aa.segment_name
+                     ,aa.tablespace_name
+                     ,aa.index_name
+                     ,aa.securefile
+                     ,bb.type_owner AS varray_type_owner
+                     ,bb.type_name  AS varray_type_name
+                     FROM
+                     dba_lobs aa
+                     LEFT JOIN
+                     dba_varrays bb
+                     ON
+                         aa.owner        = bb.owner
+                     AND aa.segment_name = bb.lob_name
+                     WHERE
+                         aa.owner        = :p01
+                     AND aa.segment_name = :p02
+                     
+                     UNION ALL
+                     
+                     SELECT
+                      cc.owner
+                     ,cc.table_name
+                     ,cc.column_name
+                     ,cc.segment_name
+                     ,cc.tablespace_name
+                     ,cc.index_name
+                     ,cc.securefile
+                     ,dd.type_owner AS varray_type_owner
+                     ,dd.type_name  AS varray_type_name
+                     FROM
+                     dba_lobs cc
+                     LEFT JOIN
+                     dba_varrays dd
+                     ON
+                         cc.owner        = dd.owner
+                     AND cc.segment_name = dd.lob_name
+                     WHERE
+                         cc.owner        = :p03
+                     AND cc.index_name   = :p04
+                  ) a
                   LEFT JOIN
-                  dba_varrays b
+                  segments_compression b
                   ON
                       a.owner        = b.owner
-                  AND a.segment_name = b.lob_name
-                  WHERE
-                      a.owner        = :p01
-                  AND a.segment_name = :p02
-                  
-                  UNION ALL
-                  
-                  SELECT
-                   c.owner
-                  ,c.table_name
-                  ,c.column_name
-                  ,c.securefile
-                  ,d.type_owner
-                  ,d.type_name
-                  FROM
-                  dba_lobs c
-                  LEFT JOIN
-                  dba_varrays d
-                  ON
-                      c.owner        = d.owner
-                  AND c.segment_name = d.lob_name
-                  WHERE
-                      c.owner        = :p03
-                  AND c.index_name   = :p04
+                  AND a.segment_name = b.segment_name
                """;
                
                curs2.execute(
@@ -364,40 +408,45 @@ class Datafile(object):
                    }
                );
                
-               lob_owner         = None;
-               lob_table_name    = None;
-               lob_column_name   = None;
-               lob_securefile    = None;
-               varray_type_owner = None;
-               varray_type_name  = None;
+               lob_owner           = None;
+               lob_table_name      = None;
+               lob_column_name     = None;
+               lob_segment_name    = None;
+               lob_tablespace_name = None;
+               lob_index_name      = None;
+               lob_securefile      = None;
+               lob_compression     = None;
+               lob_src_compression = None;
+               varray_type_owner   = None;
+               varray_type_name    = None;
                for row in curs2:
-                  lob_owner         = row[0];
-                  lob_table_name    = row[1];
-                  lob_column_name   = row[2];
-                  lob_securefile    = row[3];
-                  varray_type_owner = row[4];
-                  varray_type_name  = row[5];
+                  lob_owner           = row[0];
+                  lob_table_name      = row[1];
+                  lob_column_name     = row[2];
+                  lob_segment_name    = row[3];
+                  lob_tablespace_name = row[4];
+                  lob_index_name      = row[5];
+                  lob_securefile      = row[6];
+                  lob_compression     = row[7];
+                  lob_src_compression = row[8];
+                  varray_type_owner   = row[9];
+                  varray_type_name    = row[10];
 
                if lob_owner is not None:
-                  if varray_type_owner is not None:
-                     if lob_securefile == 'YES':
-                        rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '         \
-                           + 'MOVE VARRAY ' + lob_column_name + ' '                                \
-                           + 'STORE AS SECUREFILE LOB(TABLESPACE ' + target_tablespace_name + ');');
-                           
-                     else:
-                        rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '      \
-                           + 'MOVE VARRAY ' + lob_column_name + ' '                             \
-                           + 'STORE AS LOB(TABLESPACE ' + target_tablespace_name + ');');
-                  
-                  else:
-                     rez.append('ALTER TABLE ' + lob_owner + '.' + lob_table_name + ' '   \
-                        + 'MOVE LOB(' + lob_column_name + ') '                            \
-                        + 'STORE AS (TABLESPACE ' + target_tablespace_name + ');');
-                        
-                  rez = rez + Table(self._parent,lob_owner,lob_table_name).rebuild_indexes(
-                     rebuild_spatial = rebuild_spatial
-                  );
+                  rez = rez + Lob(
+                      parent            = self._parent
+                     ,owner             = lob_owner
+                     ,table_name        = lob_table_name
+                     ,column_name       = lob_column_name
+                     ,segment_name      = lob_segment_name
+                     ,tablespace_name   = lob_tablespace_name
+                     ,index_name        = lob_index_name
+                     ,securefile        = lob_securefile
+                     ,compression       = lob_compression
+                     ,src_compression   = lob_src_compression
+                     ,varray_type_owner = varray_type_owner
+                     ,varray_type_name  = varray_type_name
+                  ).rebuild();
             
             elif segment_type == 'INDEX':
                rez = rez + Index(self._parent,owner,segment_name).rebuild(
