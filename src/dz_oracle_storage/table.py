@@ -1,5 +1,6 @@
 import os,sys;
 from .index import Index;
+from .util  import dzq;
 
 ############################################################################### 
 class Table(object):
@@ -22,15 +23,15 @@ class Table(object):
       
    @property
    def table_owner(self):
-      return self._table_owner;
+      return dzq(self._table_owner);
  
    @property
    def table_name(self):
-      return self._table_name;
+      return dzq(self._table_name);
       
    @property
    def tablespace_name(self):
-      return self._tablespace_name;
+      return dzq(self._tablespace_name);
  
    @property
    def compression(self):

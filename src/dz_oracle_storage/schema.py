@@ -1,6 +1,5 @@
 import os,sys;
-
-from .util import dzx;
+from .util import dzx,dzq;
 
 ############################################################################### 
 class Schema(object):
@@ -29,7 +28,7 @@ class Schema(object):
       
    @property
    def schema_name(self):
-      return self._schema_name;
+      return dzq(self._schema_name);
       
    ####
    def bytes_used(

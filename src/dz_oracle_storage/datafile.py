@@ -2,6 +2,7 @@ import os,sys,math;
 from .table import Table;
 from .index import Index;
 from .lob   import Lob;
+from .util  import dzq;
 
 ############################################################################### 
 class Datafile(object):
@@ -42,7 +43,7 @@ class Datafile(object):
       
    @property
    def tablespace_name(self):
-      return self._tablespace_name;
+      return dzq(self._tablespace_name);
       
    @property
    def blocks(self):
@@ -169,8 +170,8 @@ class Datafile(object):
             dba_free_space bb
             WHERE
             bb.file_id = :p02
-            ORDER BY 5
-         ) a         
+            ORDER BY 5 DESC
+         ) a 
          LIMIT :p03
       """;
  
@@ -446,7 +447,9 @@ class Datafile(object):
                      ,src_compression   = lob_src_compression
                      ,varray_type_owner = varray_type_owner
                      ,varray_type_name  = varray_type_name
-                  ).rebuild();
+                  ).rebuild(
+                     move_tablespace = target_tablespace_name 
+                  );
             
             elif segment_type == 'INDEX':
                rez = rez + Index(self._parent,owner,segment_name).rebuild(

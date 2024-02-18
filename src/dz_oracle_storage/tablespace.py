@@ -1,4 +1,5 @@
 import os,sys;
+from .util import dzq;
 
 ############################################################################### 
 class Tablespace(object):
@@ -30,7 +31,7 @@ class Tablespace(object):
       
    @property
    def tablespace_name(self):
-      return self._tablespace_name;
+      return dzq(self._tablespace_name);
  
    @property
    def datafiles(self): 

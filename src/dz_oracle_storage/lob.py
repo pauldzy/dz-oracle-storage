@@ -1,5 +1,6 @@
 import os,sys;
 from .index import Index;
+from .util  import dzq;
 
 ############################################################################### 
 class Lob(object):
@@ -36,27 +37,27 @@ class Lob(object):
       
    @property
    def owner(self):
-      return self._owner;
+      return dzq(self._owner);
  
    @property
    def table_name(self):
-      return self._table_name;
+      return dzq(self._table_name);
       
    @property
    def column_name(self):
-      return self._column_name;
+      return dzq(self._column_name);
             
    @property
    def segment_name(self):
-      return self._segment_name;
+      return dzq(self._segment_name);
             
    @property
    def tablespace_name(self):
-      return self._tablespace_name;
+      return dzq(self._tablespace_name)
                   
    @property
    def index_name(self):
-      return self._index_name;
+      return dzq(self._index_name);
                   
    @property
    def compression(self):
@@ -72,11 +73,11 @@ class Lob(object):
       
    @property
    def varray_type_owner(self):
-      return self._varray_type_owner;
+      return dzq(self._varray_type_owner);
       
    @property
    def varray_type_name(self):
-      return self._varray_type_name;
+      return dzq(self._varray_type_name);
       
    ###
    def compression_text(

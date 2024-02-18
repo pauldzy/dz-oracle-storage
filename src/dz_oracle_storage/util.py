@@ -121,3 +121,27 @@ def spatial_parms(
       
    else:
       return "PARAMETERS(\'" + rez + "\')"; 
+
+   
+###############################################################################
+def dzq(
+    pin    : str
+) -> str:
+
+   if pin is None or pin == "":
+      return None;
+      
+   pin1 = pin.strip();
+      
+   if pin1.startswith("\""):
+      pin2 = pin1.replace("\"","");
+      
+      if pin2 == pin2.upper():
+         return pin2; 
+      else:
+         return pin1;
+      
+   if pin1 == pin1.upper():
+      return pin1;
+      
+   return "\"" + pin1 + "\"";

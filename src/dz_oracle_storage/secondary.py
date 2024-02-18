@@ -2,6 +2,7 @@ import os,sys;
 from .table import Table;
 from .index import Index;
 from .lob   import Lob;
+from .util  import dzq;
 
 ############################################################################### 
 class Secondary(object):
@@ -794,9 +795,9 @@ class Secondary(object):
    @property
    def name(self):
       if self._partition_name is None:
-         return self._owner + '.' + self._segment_name;
+         return self.owner + '.' + self.segment_name;
       else:
-         return self._owner + '.' + self._segment_name + '.' + self._partition_name;
+         return self.owner + '.' + self.segment_name + '.' + self.partition_name;
          
    @property
    def depth(self):
@@ -804,15 +805,15 @@ class Secondary(object):
       
    @property
    def owner(self):
-      return self._owner;
+      return dzq(self._owner);
       
    @property
    def segment_name(self):
-      return self._segment_name;
+      return dzq(self._segment_name);
       
    @property
    def partition_name(self):
-      return self._partition_name;
+      return dzq(self._partition_name);
       
    @property
    def segment_type(self):
@@ -820,7 +821,7 @@ class Secondary(object):
       
    @property
    def tablespace_name(self):
-      return self._tablespace_name;
+      return dzq(self._tablespace_name);
       
    @property
    def compression(self):
@@ -844,11 +845,11 @@ class Secondary(object):
       
    @property
    def index_table_owner(self):
-      return self._index_table_owner;
+      return dzq(self._index_table_owner);
       
    @property
    def index_table_name(self):
-      return self._index_table_name;
+      return dzq(self._index_table_name);
       
    @property
    def index_columns(self):
@@ -872,31 +873,31 @@ class Secondary(object):
    
    @property
    def ityp_owner(self):
-      return self._ityp_owner;
+      return dzq(self._ityp_owner);
 
    @property
    def ityp_name(self):
-      return self._ityp_name;      
+      return dzq(self._ityp_name);      
    
    @property
    def lob_table_name(self):
-      return self._lob_table_name;
+      return dzq(self._lob_table_name);
 
    @property
    def lob_column_name(self):
-      return self._lob_column_name;
+      return dzq(self._lob_column_name);
       
    @property
    def lob_index_name(self):
-      return self._lob_index_name;
+      return dzq(self._lob_index_name);
 
    @property
    def lob_varray_owner(self):
-      return self._lob_varray_owner;
+      return dzq(self._lob_varray_owner);
 
    @property
    def lob_varray_name(self):
-      return self._lob_varray_name;
+      return dzq(self._lob_varray_name);
  
    @property
    def lob_securefile(self):
@@ -993,7 +994,9 @@ class Secondary(object):
             rez.append('/* GeoRaster Table ' + self.owner + '.' + self.lob_table_name + ' */');
             return rez;
       
-         elif self.segment_type == 'LOBSEGMENT' and self.compression != 'HIGH' \
+         elif self.segment_type == 'LOBSEGMENT' \
+         and self.compression != 'HIGH'         \
+         and self.lob_securefile == 'YES'       \
          and (                                                            \
                self._parent_secondary is None                             \
             or self._parent_secondary.secondary is None                   \
@@ -1035,17 +1038,29 @@ class Secondary(object):
                   
                   elif self._parent_secondary.secondary is None \
                   or   self._parent_secondary.secondary == 'N':
-                     rez = [];
+                     rez = Table(
+                         parent          = self
+                        ,table_owner     = self.owner
+                        ,table_name      = self.segment_name
+                        ,tablespace_name = self.tablespace_name
+                        ,compression     = self.compression
+                     ).rebuild(
+                        set_compression = 'HIGH'
+                     );
                      
-                     rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
-                        + 'MOVE COMPRESS FOR OLTP;');            
                      return rez;
                      
                else:
-                  rez = [];
-                     
-                  rez.append('ALTER TABLE ' + self.owner + '.' + self.segment_name + ' ' \
-                     + 'MOVE COMPRESS FOR OLTP;');            
+                  rez = Table(
+                      parent          = self
+                     ,table_owner     = self.owner
+                     ,table_name      = self.segment_name
+                     ,tablespace_name = self.tablespace_name
+                     ,compression     = self.compression
+                  ).rebuild(
+                     set_compression = 'HIGH'
+                  );
+                  
                   return rez;
                
          elif self.segment_type == 'INDEX'                                \

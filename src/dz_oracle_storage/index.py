@@ -1,5 +1,5 @@
 import os,sys;
-from .util import spatial_parms;
+from .util import spatial_parms,dzq;
 
 ############################################################################### 
 class Index(object):
@@ -84,11 +84,11 @@ class Index(object):
       
    @property
    def index_owner(self):
-      return self._index_owner;
+      return dzq(self._index_owner);
  
    @property
    def index_name(self):
-      return self._index_name;
+      return dzq(self._index_name);
       
    @property
    def index_type(self):
@@ -96,11 +96,11 @@ class Index(object):
       
    @property
    def table_owner(self):
-      return self._table_owner;
+      return dzq(self._table_owner);
       
    @property
    def table_name(self):
-      return self._table_name;
+      return dzq(self._table_name);
       
    @property
    def index_parameters(self):
@@ -108,11 +108,11 @@ class Index(object):
       
    @property
    def ityp_owner(self):
-      return self._ityp_owner;
+      return dzq(self._ityp_owner);
       
    @property
    def ityp_name(self):
-      return self._ityp_name;
+      return dzq(self._ityp_name);
       
    @property
    def index_columns(self):
@@ -165,7 +165,7 @@ class Index(object):
                rez.append('CREATE INDEX ' + self.index_owner + '.' + self.index_name + ' ' \
                   + 'ON ' + self.table_owner + '.' + self.table_name                       \
                   + '(' + self.index_columns + ') '                                        \
-                  + 'INDEXTYPE IS "MDSYS"."SPATIAL_INDEX_V2" '  + prms + ';'); 
+                  + 'INDEXTYPE IS MDSYS.SPATIAL_INDEX_V2 '  + prms + ';'); 
             
             else:
                rez.append('ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD ' + prms + ';');
@@ -180,7 +180,12 @@ class Index(object):
          None;
          
       elif self.index_type == 'BITMAP':
-         rez.append('ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD;');
+         sufx = "";
+         
+         if move_tablespace is not None:
+            sufx += ' TABLESPACE ' + move_tablespace;
+         
+         rez.append('ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD' + sufx + ';');
          
       else:
          sufx = "";
