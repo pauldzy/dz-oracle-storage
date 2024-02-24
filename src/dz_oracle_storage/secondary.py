@@ -977,8 +977,10 @@ class Secondary(object):
    def generate_ddl(
        self
       ,recipe: str
-      ,rebuild_indx_flg: bool = False
-      ,rebuild_spatial: bool = False
+      ,rebuild_indx_flg : bool = False
+      ,rebuild_spatial  : bool = False
+      ,move_tablespace  : str  = None
+      ,set_compression  : str  = None
    ) -> list[str]:
       
       if recipe == 'HIGH':
@@ -991,7 +993,7 @@ class Secondary(object):
          (self._parent_secondary is not None and self._parent_secondary.isgeor is not None):
             # Pass on all compression for georaster managed items
             rez = [];
-            rez.append('/* GeoRaster Table ' + self.owner + '.' + self.lob_table_name + ' */');
+            rez.append('/* GeoRaster Table ' + str(self.owner) + '.' + str(self.segment_name) + ' */');
             return rez;
       
          elif self.segment_type == 'LOBSEGMENT' \
@@ -1016,7 +1018,8 @@ class Secondary(object):
                ,varray_type_owner = self.lob_varray_owner
                ,varray_type_name  = self.lob_varray_name
             ).rebuild(
-               set_compression = 'HIGH'
+                set_compression = 'HIGH'
+               ,move_tablespace = move_tablespace
             );
             
             return rez;
@@ -1045,7 +1048,8 @@ class Secondary(object):
                         ,tablespace_name = self.tablespace_name
                         ,compression     = self.compression
                      ).rebuild(
-                        set_compression = 'HIGH'
+                         set_compression = 'HIGH'
+                        ,move_tablespace = move_tablespace
                      );
                      
                      return rez;
@@ -1058,7 +1062,8 @@ class Secondary(object):
                      ,tablespace_name = self.tablespace_name
                      ,compression     = self.compression
                   ).rebuild(
-                     set_compression = 'HIGH'
+                      set_compression = 'HIGH'
+                     ,move_tablespace = move_tablespace
                   );
                   
                   return rez;
@@ -1085,7 +1090,8 @@ class Secondary(object):
                   ,index_columns    = self.index_columns
                ).rebuild(
                    rebuild_spatial = rebuild_spatial
-                  ,set_compression = 'HIGH'    
+                  ,set_compression = 'HIGH' 
+                  ,move_tablespace = move_tablespace                  
                );
     
                return rez;                                      
@@ -1109,6 +1115,8 @@ class Secondary(object):
                ,index_columns    = self.index_columns
             ).rebuild(
                 rebuild_spatial = rebuild_spatial
+               ,set_compression = set_compression
+               ,move_tablespace = move_tablespace
             );
  
             return rez;
@@ -1129,7 +1137,10 @@ class Secondary(object):
                ,src_compression   = self.src_compression
                ,varray_type_owner = self.lob_varray_owner
                ,varray_type_name  = self.lob_varray_name
-            ).rebuild();
+            ).rebuild(
+                set_compression = set_compression
+               ,move_tablespace = move_tablespace
+            );
             
             return rez; 
       
@@ -1148,7 +1159,11 @@ class Secondary(object):
                ,ityp_owner       = self.ityp_owner
                ,ityp_name        = self.ityp_name
                ,index_columns    = self.index_columns
-            ).rebuild(rebuild_spatial=rebuild_spatial);
+            ).rebuild(
+                rebuild_spatial = rebuild_spatial
+               ,set_compression = set_compression
+               ,move_tablespace = move_tablespace
+            );
  
             return rez;
                   

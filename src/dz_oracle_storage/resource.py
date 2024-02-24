@@ -249,8 +249,10 @@ class Resource(object):
    ####
    def generate_ddl(
        self
-      ,recipe: str
-      ,rebuild_spatial: bool = False
+      ,recipe           : str
+      ,rebuild_spatial  : bool = False
+      ,move_tablespace  : str  = None
+      ,set_compression  : str  = None
    ) -> list[str]:
       rez = [];
       rebuild_indx_flg = False;
@@ -270,6 +272,8 @@ class Resource(object):
                    recipe = recipe
                   ,rebuild_indx_flg = rebuild_indx_flg
                   ,rebuild_spatial  = rebuild_spatial
+                  ,move_tablespace  = move_tablespace
+                  ,set_compression  = set_compression
                );
                if r is not None:
                   rebuild_indx_flg = True;
@@ -292,6 +296,8 @@ class Resource(object):
                    recipe = recipe
                   ,rebuild_indx_flg = rebuild_indx_flg
                   ,rebuild_spatial  = rebuild_spatial
+                  ,move_tablespace  = move_tablespace
+                  ,set_compression  = set_compression
                );
                if r is not None:
                   rebuild_indx_flg = True;
@@ -315,6 +321,8 @@ class Resource(object):
                    recipe = recipe
                   ,rebuild_indx_flg = rebuild_indx_flg
                   ,rebuild_spatial  = rebuild_spatial
+                  ,move_tablespace  = move_tablespace
+                  ,set_compression  = set_compression
                );
                if r is not None:
                   rez = rez + r;

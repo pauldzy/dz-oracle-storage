@@ -2,7 +2,7 @@ import os,sys,math;
 from .table import Table;
 from .index import Index;
 from .lob   import Lob;
-from .util  import dzq;
+from .util  import dzq,floatstr;
 
 ############################################################################### 
 class Datafile(object):
@@ -134,7 +134,8 @@ class Datafile(object):
       
       str_sql = """
          SELECT
-          a.owner
+          row_number() over() AS rownum
+         ,a.owner
          ,a.segment_name
          ,a.partition_name
          ,a.segment_type
@@ -188,18 +189,19 @@ class Datafile(object):
       running_gb = 0;
       rez = [];
       for row in curs:
-         owner          = row[0];
-         segment_name   = row[1];
-         partition_name = row[2];
-         segment_type   = row[3];
-         block_id       = row[4];
-         end_block      = row[5];
-         blocks         = row[6];
-         bytes          = row[7];
+         row_number     = row[0];
+         owner          = row[1];
+         segment_name   = row[2];
+         partition_name = row[3];
+         segment_type   = row[4];
+         block_id       = row[5];
+         end_block      = row[6];
+         blocks         = row[7];
+         bytes          = row[8];
 
          key = owner + segment_name + str(partition_name);
          if owner == 'free' or key not in already_done:
-         
+            
             if segment_type == 'TABLE':
                str_sql2 = """
                   SELECT
@@ -331,7 +333,7 @@ class Datafile(object):
                      );
                      
                   else:               
-                     rez.append('/* Secondary table */');
+                     rez.append('/* Secondary table ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' */');
             
             elif segment_type in ['LOBSEGMENT','LOBINDEX']:
                str_sql2 = """
@@ -434,33 +436,195 @@ class Datafile(object):
                   varray_type_name    = row[10];
 
                if lob_owner is not None:
-                  rez = rez + Lob(
-                      parent            = self._parent
-                     ,owner             = lob_owner
-                     ,table_name        = lob_table_name
-                     ,column_name       = lob_column_name
-                     ,segment_name      = lob_segment_name
-                     ,tablespace_name   = lob_tablespace_name
-                     ,index_name        = lob_index_name
-                     ,securefile        = lob_securefile
-                     ,compression       = lob_compression
-                     ,src_compression   = lob_src_compression
-                     ,varray_type_owner = varray_type_owner
-                     ,varray_type_name  = varray_type_name
-                  ).rebuild(
-                     move_tablespace = target_tablespace_name 
-                  );
+               
+                  if lob_column_name == 'INFO' \
+                  and ( lob_table_name.startswith('MDRT') or lob_table_name.startswith('"MDRT') ) \
+                  and ( lob_table_name.endswith('$')      or lob_table_name.endswith('$"')      ) :
+                     str_sql2 = """
+                        SELECT
+                         a.sdo_index_owner
+                        ,a.sdo_index_name
+                        ,b.index_type
+                        ,b.table_owner
+                        ,b.table_name
+                        ,b.parameters
+                        ,b.ityp_owner
+                        ,b.ityp_name
+                        ,b.index_columns
+                        FROM
+                        sdo_index_metadata_table a
+                        JOIN
+                        dba_indexes_plus b
+                        ON
+                            a.sdo_index_owner = b.owner
+                        AND a.sdo_index_name  = b.index_name
+                        WHERE
+                            a.sdo_index_owner = :p01
+                        AND a.sdo_index_table = :p02
+                     """;
+                     
+                     curs2.execute(
+                         str_sql2
+                        ,{
+                            'p01': lob_owner
+                           ,'p02': lob_table_name
+                         }
+                     );
+                     
+                     sdo_index_owner  = None;
+                     sdo_index_name   = None;
+                     index_type       = None;
+                     table_owner      = None;
+                     table_name       = None;
+                     index_parameters = None;
+                     ityp_owner       = None;
+                     ityp_name        = None;
+                     index_columns    = None;
+                     for row in curs2:
+                        sdo_index_owner  = row[0];
+                        sdo_index_name   = row[1];
+                        index_type       = row[2];
+                        table_owner      = row[3];
+                        table_name       = row[4];
+                        index_parameters = row[5];
+                        ityp_owner       = row[6];
+                        ityp_name        = row[7];
+                        index_columns    = row[8];
+                        
+                     if sdo_index_name is not None:
+                        
+                        rez = rez + Index(
+                            self
+                           ,index_owner      = sdo_index_owner
+                           ,index_name       = sdo_index_name
+                           ,index_type       = index_type
+                           ,table_owner      = table_owner
+                           ,table_name       = table_name
+                           ,index_parameters = index_parameters
+                           ,ityp_owner       = ityp_owner
+                           ,ityp_name        = ityp_name
+                           ,index_columns    = index_columns
+                        ).rebuild(
+                            rebuild_spatial = rebuild_spatial
+                           ,move_tablespace = target_tablespace_name 
+                        );
+                     
+                  else:
+                     rez = rez + Lob(
+                         parent            = self._parent
+                        ,owner             = lob_owner
+                        ,table_name        = lob_table_name
+                        ,column_name       = lob_column_name
+                        ,segment_name      = lob_segment_name
+                        ,tablespace_name   = lob_tablespace_name
+                        ,index_name        = lob_index_name
+                        ,securefile        = lob_securefile
+                        ,compression       = lob_compression
+                        ,src_compression   = lob_src_compression
+                        ,varray_type_owner = varray_type_owner
+                        ,varray_type_name  = varray_type_name
+                     ).rebuild(
+                        move_tablespace = target_tablespace_name 
+                     );
+                     
+                     rez = rez + Table(
+                         parent          = self._parent
+                        ,table_owner     = lob_owner
+                        ,table_name      = lob_table_name
+                        ,tablespace_name = None
+                        ,compression     = None
+                     ).rebuild_indexes(
+                        rebuild_spatial = rebuild_spatial
+                     );
             
             elif segment_type == 'INDEX':
-               rez = rez + Index(self._parent,owner,segment_name).rebuild(
-                   rebuild_spatial = rebuild_spatial
-                  ,move_tablespace = target_tablespace_name
+               str_sql2 = """
+                  SELECT
+                   a.owner
+                  ,a.index_name
+                  ,a.index_type
+                  ,a.table_owner
+                  ,a.table_name
+                  ,a.tablespace_name
+                  ,a.compression
+                  ,a.parameters
+                  ,a.ityp_owner
+                  ,a.ityp_name
+                  ,a.index_columns
+                  FROM
+                  dba_indexes_plus a
+                  WHERE
+                      a.owner        = :p01
+                  AND a.index_name   = :p02
+               """;
+               
+               curs2.execute(
+                   str_sql2
+                  ,{
+                      'p01': owner
+                     ,'p02': segment_name
+                   }
                );
                
+               index_owner           = None;
+               index_name            = None;
+               index_type            = None;
+               index_table_owner     = None;
+               index_table_name      = None;
+               index_tablespace_name = None;
+               index_compression     = None;
+               index_parameters      = None;
+               ityp_owner            = None;
+               ityp_name             = None;
+               index_columns         = None;
+               for row in curs2:
+                  index_owner           = row[0];
+                  index_name            = row[1];
+                  index_type            = row[2];
+                  index_table_owner     = row[3];
+                  index_table_name      = row[4];
+                  index_tablespace_name = row[5];
+                  index_compression     = row[6];
+                  index_parameters      = row[7];
+                  ityp_owner            = row[8];
+                  ityp_name             = row[9];
+                  index_columns         = row[10];
+               
+               if index_type == 'IOT - TOP':
+                  z = Table(
+                      parent                = self._parent
+                     ,table_owner           = index_table_owner
+                     ,table_name            = index_table_name
+                     ,tablespace_name       = index_tablespace_name
+                     ,compression           = index_compression
+                  ).rebuild(
+                      move_tablespace = target_tablespace_name
+                  );
+               
+               else:
+                  z = Index(
+                      parent                = self._parent
+                     ,index_owner           = index_owner
+                     ,index_name            = index_name
+                     ,index_type            = index_type
+                     ,table_owner           = index_table_owner
+                     ,table_name            = index_table_name
+                     ,index_parameters      = index_parameters
+                     ,ityp_owner            = ityp_owner
+                     ,ityp_name             = ityp_name
+                     ,index_columns         = index_columns
+                  ).rebuild(
+                      rebuild_spatial = rebuild_spatial
+                     ,move_tablespace = target_tablespace_name
+                  );
+               
+               rez = rez + z;
+               
             else:
-               rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' */');
+               rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' ' + floatstr(bytes/1024/1024/1024) + ' GB */');
             
-            running_gb += bytes / 1024 / 1024 / 1024;
+            if segment_type != 'free':
+               running_gb += bytes / 1024 / 1024 / 1024;
             
             if result_gb is not None \
             and running_gb > result_gb:

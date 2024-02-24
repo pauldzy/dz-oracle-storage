@@ -130,7 +130,7 @@ class Lob(object):
       else:
          rez.append('ALTER TABLE ' + self.owner + '.' + self.table_name + ' ' \
             + 'MOVE LOB(' + self.column_name + ') '                           \
-            + 'STORE AS ' + scfl + 'LOB' + prms + ';');
+            + 'STORE AS ' + scfl + prms + ';');
       
       return rez;
       

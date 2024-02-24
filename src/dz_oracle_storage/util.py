@@ -1,6 +1,13 @@
 import os,sys;
-import unicodedata,re;
+import unicodedata,re,decimal;
     
+############################################################################### 
+ctx = decimal.Context();
+ctx.prec = 8;
+def floatstr(pin):
+   d1 = ctx.create_decimal(repr(pin));
+   return format(d1,'f');
+   
 ############################################################################### 
 def slugify(
     value        : str
