@@ -1,5 +1,6 @@
 import os,sys;
-from .util import dzq;
+from .util  import dzq;
+from .ddl   import DDL;
 
 ############################################################################### 
 class Tablespace(object):
@@ -248,3 +249,91 @@ class Tablespace(object):
             
       curs.close();
      
+   ####
+   def move_from_hw(
+       self
+      ,target_tablespace_name: str
+      ,df_result_count       : int   = None
+      ,df_result_gb          : float = None
+      ,rebuild_spatial       : bool  = True
+   ) -> list[DDL]:
+   
+      rez = [];
+      for df in self.datafiles_l:
+         
+         rez = rez + df.move_from_hw(
+            target_tablespace_name = target_tablespace_name
+           ,result_count           = df_result_count
+           ,result_gb              = df_result_gb
+           ,rebuild_spatial        = rebuild_spatial
+         );
+         
+      curs = self._sqliteconn.cursor();
+      
+      str_sql = """
+         CREATE TEMP TABLE tmp_hw_moves(
+             priority_num      INTEGER
+            ,owner             TEXT
+            ,segment_name      TEXT
+            ,partition_name    TEXT
+            ,segment_type      TEXT
+            ,ddl_rebuild       BOOLEAN
+            ,ddl_move          BOOLEAN
+            ,ddl_recreate      BOOLEAN
+            ,statements        TEXT
+            ,keep_flag         BOOLEAN
+         );
+      """;
+      
+      curs.execute(str_sql);
+      
+      str_sql = """
+         INSERT INTO tmp_hw_moves(
+             priority_num
+            ,owner
+            ,segment_name
+            ,partition_name
+            ,segment_type
+            ,ddl_rebuild
+            ,ddl_move
+            ,ddl_recreate
+            ,statements
+         ) VALUES (
+            ?,?,?,?,?,?,?,?,?
+         )
+      """;
+      
+      for item in rez:
+         curs.execute(
+             str_sql
+            ,(
+                item.priority_num
+               ,item.owner
+               ,item.segment_name
+               ,item.partition_name
+               ,item.segment_type
+               ,item.ddl_rebuild
+               ,item.ddl_move
+               ,item.ddl_recreate
+               ,item.statements_str()
+             )          
+         );
+      
+      str_sql = """
+         SELECT
+         a.owner
+         FROM
+         tmp_hw_moves a
+         WHERE
+         a,owner != 'free'
+         GROUP BY
+         a.owner
+      """;
+      
+      curs.execute(str_sql);
+      
+      for row in curs:
+         print(row[0])
+      
+      return rez;
+      

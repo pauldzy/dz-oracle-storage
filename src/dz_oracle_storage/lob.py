@@ -1,5 +1,6 @@
 import os,sys;
 from .index import Index;
+from .ddl   import DDL;
 from .util  import dzq;
 
 ############################################################################### 
@@ -101,6 +102,7 @@ class Lob(object):
        self
       ,set_compression: str  = None
       ,move_tablespace: str  = None
+      ,priority_num   : int  = None
    ) -> list[str]:
    
       rez = [];
@@ -111,9 +113,11 @@ class Lob(object):
       and self.securefile == 'YES':
          prms += self.compression_text(set_compression) + ' ';
          
+      boo_move = False;
       if move_tablespace is not None \
       and move_tablespace != self.tablespace_name:
          prms += "TABLESPACE " + move_tablespace + ' ';
+         boo_move = True;
          
       if len(prms) > 0:
          prms = '(' + prms.strip() + ')';
@@ -123,14 +127,36 @@ class Lob(object):
          scfl = "SECUREFILE ";
 
       if self.varray_type_owner is not None:
-         rez.append('ALTER TABLE ' + self.owner + '.' + self.table_name + ' ' \
-            + 'MOVE VARRAY ' + self.column_name + ' '                         \
-            + 'STORE AS ' + scfl + 'LOB' + prms + ';');
+         rez.append(DDL(
+             priority_num    = priority_num
+            ,owner           = self.owner
+            ,segment_name    = self.segment_name
+            ,partition_name  = None
+            ,segment_type    = 'LOB'
+            ,ddl_rebuild     = True
+            ,ddl_move        = boo_move
+            ,ddl_recreate    = False
+            ,statements      = [
+                 'ALTER TABLE ' + self.owner + '.' + self.table_name + ' ' \
+               + 'MOVE VARRAY ' + self.column_name + ' STORE AS ' + scfl + 'LOB' + prms + ';'
+             ]
+         ));
       
       else:
-         rez.append('ALTER TABLE ' + self.owner + '.' + self.table_name + ' ' \
-            + 'MOVE LOB(' + self.column_name + ') '                           \
-            + 'STORE AS ' + scfl + prms + ';');
+         rez.append(DDL(
+             priority_num    = priority_num
+            ,owner           = self.owner
+            ,segment_name    = self.segment_name
+            ,partition_name  = None
+            ,segment_type    = 'LOB'
+            ,ddl_rebuild     = True
+            ,ddl_move        = boo_move
+            ,ddl_recreate    = False
+            ,statements      = [
+                 'ALTER TABLE ' + self.owner + '.' + self.table_name + ' ' \
+               + 'MOVE LOB(' + self.column_name + ') STORE AS ' + scfl + prms + ';'
+             ]
+         ));
       
       return rez;
       

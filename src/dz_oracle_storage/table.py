@@ -1,5 +1,6 @@
 import os,sys;
 from .index import Index;
+from .ddl   import DDL;
 from .util  import dzq;
 
 ############################################################################### 
@@ -59,11 +60,13 @@ class Table(object):
        self
       ,set_compression: str  = None
       ,move_tablespace: str  = None
-   ) -> list[str]:
+      ,priority_num   : int  = None
+   ) -> list[DDL]:
    
       rez = [];
       
       prms = "";
+      boo_move = False;
       if  set_compression is not None         \
       and set_compression != self.compression :
          prms += self.compression_text(set_compression) + ' ';
@@ -74,9 +77,20 @@ class Table(object):
          
       if len(prms) > 0:
          prms = prms.strip();
+         boo_move = True;
 
-      rez.append('ALTER TABLE ' + self.table_owner + '.' + self.table_name + ' ' \
-         + 'MOVE ' + prms + ';');            
+      rez.append(DDL(
+          priority_num    = priority_num
+         ,owner           = self.table_owner
+         ,segment_name    = self.table_name
+         ,partition_name  = None
+         ,segment_type    = 'TABLE'
+         ,ddl_rebuild     = False
+         ,ddl_move        = boo_move
+         ,ddl_recreate    = False
+         ,statements      = ['ALTER TABLE ' + self.table_owner + '.' + self.table_name + ' MOVE ' + prms + ';']
+      ));
+      
       return rez;
       
    ####
@@ -86,7 +100,8 @@ class Table(object):
       ,rebuild_spatial: bool = False
       ,set_compression: str  = None
       ,move_tablespace: str  = None
-   ) -> list[str]:
+      ,priority_num   : int  = None
+   ) -> list[DDL]:
    
       curs = self._sqliteconn.cursor();      
       
@@ -180,7 +195,8 @@ class Table(object):
             ).rebuild(
                 rebuild_spatial = rebuild_spatial
                ,set_compression = set_compression
-               ,move_tablespace = move_tablespace            
+               ,move_tablespace = move_tablespace
+               ,priority_num    = priority_num               
             );
             
       curs.close();

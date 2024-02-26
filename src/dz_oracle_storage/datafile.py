@@ -2,6 +2,7 @@ import os,sys,math;
 from .table import Table;
 from .index import Index;
 from .lob   import Lob;
+from .ddl   import DDL;
 from .util  import dzq,floatstr;
 
 ############################################################################### 
@@ -113,7 +114,7 @@ class Datafile(object):
       ,result_count          : int   = None
       ,result_gb             : float = None
       ,rebuild_spatial       : bool  = True
-   ) -> list[str]:
+   ) -> list[DDL]:
    
       if not self._parent.harvest_extents:
          raise Exception("parent instance was not harvested with extent information.");
@@ -256,10 +257,12 @@ class Datafile(object):
                      ,compression     = table_compression
                   );
                   rez = rez + tbl.rebuild(
-                     move_tablespace = target_tablespace_name
+                      move_tablespace = target_tablespace_name
+                     ,priority_num    = row_number
                   );
                   rez = rez + tbl.rebuild_indexes(
-                     rebuild_spatial = rebuild_spatial
+                      rebuild_spatial = rebuild_spatial
+                     ,priority_num    = row_number
                   );
                   
                else:
@@ -329,11 +332,24 @@ class Datafile(object):
                         ,index_columns    = index_columns
                      ).rebuild(
                          rebuild_spatial = rebuild_spatial
-                        ,move_tablespace = target_tablespace_name 
+                        ,move_tablespace = target_tablespace_name
+                        ,priority_num    = row_number
                      );
                      
-                  else:               
-                     rez.append('/* Secondary table ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' */');
+                  else:
+                     rez.append(DDL(
+                         priority_num    = row_number
+                        ,owner           = owner
+                        ,segment_name    = segment_name
+                        ,partition_name  = None
+                        ,segment_type    = 'TABLE'
+                        ,ddl_rebuild     = False
+                        ,ddl_move        = False
+                        ,ddl_recreate    = False
+                        ,statements      = [
+                            '/* Secondary table ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' */'
+                        ]
+                     ));
             
             elif segment_type in ['LOBSEGMENT','LOBINDEX']:
                str_sql2 = """
@@ -506,7 +522,8 @@ class Datafile(object):
                            ,index_columns    = index_columns
                         ).rebuild(
                             rebuild_spatial = rebuild_spatial
-                           ,move_tablespace = target_tablespace_name 
+                           ,move_tablespace = target_tablespace_name
+                           ,priority_num    = row_number
                         );
                      
                   else:
@@ -524,7 +541,8 @@ class Datafile(object):
                         ,varray_type_owner = varray_type_owner
                         ,varray_type_name  = varray_type_name
                      ).rebuild(
-                        move_tablespace = target_tablespace_name 
+                         move_tablespace = target_tablespace_name
+                        ,priority_num    = row_number
                      );
                      
                      rez = rez + Table(
@@ -534,7 +552,8 @@ class Datafile(object):
                         ,tablespace_name = None
                         ,compression     = None
                      ).rebuild_indexes(
-                        rebuild_spatial = rebuild_spatial
+                         rebuild_spatial = rebuild_spatial
+                        ,priority_num    = row_number
                      );
             
             elif segment_type == 'INDEX':
@@ -599,6 +618,7 @@ class Datafile(object):
                      ,compression           = index_compression
                   ).rebuild(
                       move_tablespace = target_tablespace_name
+                     ,priority_num    = row_number
                   );
                
                else:
@@ -616,12 +636,26 @@ class Datafile(object):
                   ).rebuild(
                       rebuild_spatial = rebuild_spatial
                      ,move_tablespace = target_tablespace_name
+                     ,priority_num    = row_number
                   );
                
                rez = rez + z;
                
             else:
-               rez.append('/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' + str(partition_name) + ' ' + floatstr(bytes/1024/1024/1024) + ' GB */');
+               rez.append(DDL(
+                   priority_num    = row_number
+                  ,owner           = owner
+                  ,segment_name    = segment_name
+                  ,partition_name  = None
+                  ,segment_type    = 'TABLE'
+                  ,ddl_rebuild     = False
+                  ,ddl_move        = False
+                  ,ddl_recreate    = False
+                  ,statements      = [
+                      '/* ' + str(segment_type) + ': ' + str(owner) + '.' + str(segment_name) + ' ' 
+                     + str(partition_name) + ' ' + floatstr(bytes/1024/1024/1024) + ' GB */'
+                  ]
+               ));
             
             if segment_type != 'free':
                running_gb += bytes / 1024 / 1024 / 1024;

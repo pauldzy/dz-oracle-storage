@@ -1,5 +1,6 @@
 import os,sys;
-from .util import spatial_parms,dzq;
+from .ddl   import DDL;
+from .util  import spatial_parms,dzq;
 
 ############################################################################### 
 class Index(object):
@@ -124,7 +125,8 @@ class Index(object):
       ,rebuild_spatial: bool = False
       ,set_compression: str  = None
       ,move_tablespace: str  = None
-   ) -> list[str]:
+      ,priority_num   : int  = None
+   ) -> list[DDL]:
    
       rez = [];
 
@@ -132,11 +134,13 @@ class Index(object):
  
          if self.ityp_owner == 'MDSYS' and self.ityp_name in ['SPATIAL_INDEX','SPATIAL_INDEX_V2']:
             
+            boo_move = False;
             if move_tablespace is None:
                tbs = {};
                
             else:
                tbs = {'TABLESPACE':move_tablespace};
+               boo_move = True;
             
             if set_compression is None:
                cmp = {};
@@ -161,17 +165,49 @@ class Index(object):
             );
             
             if rebuild_spatial:
-               rez.append('DROP INDEX ' + self.index_owner + '.' + self.index_name + ';');
-               rez.append('CREATE INDEX ' + self.index_owner + '.' + self.index_name + ' ' \
-                  + 'ON ' + self.table_owner + '.' + self.table_name                       \
-                  + '(' + self.index_columns + ') '                                        \
-                  + 'INDEXTYPE IS MDSYS.SPATIAL_INDEX_V2 '  + prms + ';'); 
+               rez.append(DDL(
+                   priority_num    = priority_num
+                  ,owner           = self.index_owner
+                  ,segment_name    = self.index_name
+                  ,partition_name  = None
+                  ,segment_type    = 'INDEX'
+                  ,ddl_rebuild     = False
+                  ,ddl_move        = boo_move
+                  ,ddl_recreate    = True
+                  ,statements      = [
+                      'DROP INDEX ' + self.index_owner + '.' + self.index_name + ';'
+                     ,'CREATE INDEX ' + self.index_owner + '.' + self.index_name + ' ' \
+                        + 'ON ' + self.table_owner + '.' + self.table_name             \
+                        + '(' + self.index_columns + ') '                              \
+                        + 'INDEXTYPE IS MDSYS.SPATIAL_INDEX_V2 '  + prms + ';'
+                  ]
+               ));
             
             else:
-               rez.append('ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD ' + prms + ';');
+               rez.append(DDL(
+                   priority_num    = priority_num
+                  ,owner           = self.index_owner
+                  ,segment_name    = self.index_name
+                  ,partition_name  = None
+                  ,segment_type    = 'INDEX'
+                  ,ddl_rebuild     = True
+                  ,ddl_move        = boo_move
+                  ,ddl_recreate    = False
+                  ,statements      = ['ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD ' + prms + ';']
+               ));
          
          else:
-            rez.append('/* UNHANDLED DOMAIN INDEX ' + str(self.ityp_owner) + '.' + str(self.ityp_name) + ' */');
+            rez.append(DDL(
+                priority_num    = priority_num
+               ,owner           = self.index_owner
+               ,segment_name    = self.index_name
+               ,partition_name  = None
+               ,segment_type    = 'INDEX'
+               ,ddl_rebuild     = False
+               ,ddl_move        = False
+               ,ddl_recreate    = False
+               ,statements      = ['/* UNHANDLED DOMAIN INDEX ' + str(self.ityp_owner) + '.' + str(self.ityp_name) + ' */']
+            ));
             
       elif self.index_type == 'LOB':
          None;
@@ -185,7 +221,17 @@ class Index(object):
          if move_tablespace is not None:
             sufx += ' TABLESPACE ' + move_tablespace;
          
-         rez.append('ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD' + sufx + ';');
+         rez.append(DDL(
+             priority_num    = priority_num
+            ,owner           = self.index_owner
+            ,segment_name    = self.index_name
+            ,partition_name  = None
+            ,segment_type    = 'INDEX'
+            ,ddl_rebuild     = False
+            ,ddl_move        = False
+            ,ddl_recreate    = False
+            ,statements      = ['ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD' + sufx + ';']
+         ));
          
       else:
          sufx = "";
@@ -205,7 +251,17 @@ class Index(object):
             else:
                raise Exception('unknown compression index value.');
                   
-         rez.append('ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD' + sufx + ';');
+         rez.append(DDL(
+             priority_num    = priority_num
+            ,owner           = self.index_owner
+            ,segment_name    = self.index_name
+            ,partition_name  = None
+            ,segment_type    = 'INDEX'
+            ,ddl_rebuild     = False
+            ,ddl_move        = False
+            ,ddl_recreate    = False
+            ,statements      = ['ALTER INDEX ' + self.index_owner + '.' + self.index_name + ' REBUILD' + sufx + ';']
+         ));
 
       return rez;
       
